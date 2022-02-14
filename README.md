@@ -1,1 +1,4 @@
-# koi - An Approachable Implementation of the Calculus of Inductive Constructions
+# koi 
+(**K**alculus **O**f **I**nductive constructions)
+
+An Approachable Implementation of a Compiler for the Calculus of Inductive Constructions.
