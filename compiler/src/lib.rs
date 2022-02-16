@@ -1,3 +1,6 @@
+mod hir;
+mod parse;
+
 #[cfg(test)]
 mod tests {
     #[test]

@@ -1,7 +1,13 @@
 // Koi code
 
+enum True() : Prop {
+  True() -> True
+}
+
+enum False() : Prop {}
+
 enum Nat() : Type 0 {
-  O -> Nat, 
+  O() -> Nat, 
   S(_ : Nat) -> Nat,
 }
 
@@ -12,8 +18,16 @@ func rec add(a b : Nat) -> Nat {
   }
 }
 
+func add_one(a : Nat) -> Nat {
+  let lambda_add_one: fn(_ : Nat) -> Nat = func(b : Nat) -> Nat {
+    let one: Nat = Nat.S(Nat.O)
+    add(b, one)
+  };
+  lambda_add_one(a)
+}
+
 enum Vector(A : Type) : fn(_ : Nat) -> Type {
-  Nil -> Vector A Nat.O
+  Nil() -> Vector A Nat.O,
   Cons(head : A, _tail : Vector A n) -> Vector A Nat.S(n)
 }
 
@@ -21,9 +35,23 @@ func rec append(A : Type, n m : Nat, v : Vector A n, w : Vector A m) -> Vector A
   match v -> Vector A add(n, m) {
     Vector.Nil(_, _) => w
     Vector.Cons(A' : Type, n' : Nat, head : A, tail : Vector A n') => 
-        Vector.Cons(A, add(n' + m), head, append(A, n', m, tail, w))
+        Vector.Cons(A, add(n', m), head, append(A, n', m, tail, w))
   }
 }
+
+enum List(A : Type) : Type {
+  Nil() -> List A,
+  Cons(_ : A, _ : List A) -> List A
+}
+
+func rec map(A B : Type, l : List A, f : fn(a : A) -> B) -> List B {
+  match l -> () {
+    Nil(_) => List.Nil(B),
+    Cons(X : Type, head : X, tail : List X) => List.Cons(B, f(head), map(A, B, tail, f))
+  }
+}
+
+
 
 ---
 // Koi AST
