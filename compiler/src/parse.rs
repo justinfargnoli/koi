@@ -11,7 +11,6 @@ mod ast {
 
     pub enum Expression {
         Name(String),
-        Cast(Cast),
         // Dependent Product
         Let(Let),
         FunctionCall(FunctionCall),
@@ -36,7 +35,7 @@ mod ast {
     pub enum Name {
         Anonymous,
         Name(String),
-        Constructor(ConstructorName)
+        Constructor(ConstructorName),
     }
 
     pub struct ConstructorName {
@@ -81,10 +80,5 @@ mod ast {
     pub struct FunctionCall {
         function: Box<Expression>,
         arguments: Vec<Expression>,
-    }
-
-    pub struct Cast {
-        term: Box<Expression>,
-        typ: Box<Expression>
     }
 }

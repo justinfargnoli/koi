@@ -1,17 +1,30 @@
 pub struct HIR {
-    global_terms: Vec<Term>,
+    declarations: Vec<Term>,
+    inductives: Vec<Inductive>,
+}
+
+type Identifier = String;
+
+pub struct Inductive {
+    name: Identifier,
+    parameters: Vec<Term>,
+    arity: Term,
+    constructors: Vec<Constructor>,
+}
+
+pub struct Constructor {
+    name: Identifier,
+    typ: Term,
 }
 
 type DeBruijnIndex = u32;
-type BranchesCount = u16;
+type BranchesCount = u32;
+type Universe = Vec<(Level, bool)>; // Vec must be non-empty
+type UniverseInstance = Vec<Level>;
 
 pub enum Term {
     DeBruijnIndex(DeBruijnIndex),
     Sort(Universe),
-    Cast {
-        term: Box<Term>,
-        typ: Box<Term>,
-    },
     DependentProduct {
         name: Name,
         from_type: Box<Term>,
@@ -33,25 +46,31 @@ pub enum Term {
         arguments: Vec<Term>,
     },
     Constant(String, UniverseInstance),
-    Inductive(Inductive, UniverseInstance),
-    Constructor(Inductive, BranchesCount, UniverseInstance),
+    Inductive(String, UniverseInstance),
+    Constructor(String, BranchesCount, UniverseInstance),
     Match {
-        inductive: Inductive,
+        inductive_name: String,
         parameter_count: BranchesCount,
         typ: Box<Term>,
         discriminee: Box<Term>,
-        branches: Vec<(BranchesCount, Term)>,
+        branches: Vec<(BranchesCount, Term)>, // QUESTION: Can `BranchesCount` be removed here and we just use the position in the `Vec`?
     },
-    Fixpoint(Box<Term>, DeBruijnIndex), // Unsure on this one
+    Fixpoint {
+        name: Name,
+        typ: Box<Term>,
+        body: Box<Term>,
+        recursive_parameter_index: u32,
+    },
 }
 
 pub enum Name {
     Anonymous,
-    Named(String),
+    Named(Identifier),
 }
 
-pub struct Universe {}
-
-pub struct UniverseInstance {}
-
-pub struct Inductive {}
+pub enum Level {
+    Prop, 
+    Set,
+    Level(String),
+    DeBruijnIndex(DeBruijnIndex),
+}
