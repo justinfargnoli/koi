@@ -1,5 +1,10 @@
-mod hir;
-mod parse;
+pub mod codegen;
+pub mod erase;
+pub mod hir;
+pub mod parse;
+pub mod typ;
+
+// TODO: Termination checking 
 
 #[cfg(test)]
 mod tests {
