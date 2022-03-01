@@ -4,7 +4,7 @@ pub mod hir;
 pub mod parse;
 pub mod typ;
 
-// TODO: Termination checking 
+// TODO: Termination checking
 
 #[cfg(test)]
 mod tests {

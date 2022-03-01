@@ -1,5 +1,5 @@
-mod ast {
-    use crate::hir::Identifier;
+mod ir {
+    use crate::hir::ir::Identifier;
 
     pub struct AST {
         declarations: Vec<Declaration>,
@@ -74,3 +74,5 @@ mod ast {
         arms: Vec<(ConstructorIdentifier, Expression)>,
     }
 }
+
+mod pass {}
