@@ -1,6 +1,6 @@
 namespace Hidden
 
-universe u
+universe u w
 
 inductive True : Prop where
 | True : True
@@ -32,21 +32,23 @@ def subtract (a b : Nat) : Nat :=
       | Nat.succ (an : Nat) => subtract an bn  
 
 
-inductive List : Type u where
-| nil : List
-| cons : Nat -> List -> List 
+inductive List (A : Type u) : Type u where
+| nil : List A
+| cons : A -> List A -> List A
 
-def length (l : List) : Nat :=
+def length (A: Type u) (l : List A) : Nat :=
   match l with
     | List.nil => Nat.zero
-    | List.cons (x : Nat) (xs : List) => Nat.succ (length xs)
+    | List.cons (x : A) (xs : List A) => Nat.succ (length A xs)
 
-def append (as : List) (bs : List) : List := 
+def append (A : Type u) (B : Type w) (f : A -> B) (as : List A) (bs : List B) : List B := 
   match as with
     | List.nil => bs
-    | List.cons (x : Nat) (xs : List) => append xs (List.cons x bs)
+    | List.cons (x : A) (xs : List A) => append A B f xs (List.cons (f x) bs)
+#print append
+#check append
 
-theorem length_nil : length List.nil = Nat.zero := by rfl
+-- theorem length_nil : length List.nil = Nat.zero := by rfl
 
 
 -- Defines a function that takes a name and produces a greeting.
@@ -89,13 +91,10 @@ def numberOfDay (d : Weekday) : Nat :=
   | saturday  => 7
 
 set_option pp.all true
-#print numberOfDay
--- ... numberOfDay.match_1
-#print numberOfDay.match_1
--- ... Weekday.casesOn ...
-#print Weekday.casesOn
--- ... Weekday.rec ...
-#check @Weekday.rec
+-- #print numberOfDay
+-- #print numberOfDay.match_1
+-- #print Weekday.casesOn
+-- #check @Weekday.rec
 /-
 @Weekday.rec.{u}
  : {motive : Weekday → Sort u} →
@@ -109,4 +108,4 @@ set_option pp.all true
     (t : Weekday) → motive t
 -/
 
-#check List
+-- #check List

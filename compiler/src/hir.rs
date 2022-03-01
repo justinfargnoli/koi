@@ -1,9 +1,9 @@
 pub struct HIR {
-    declarations: Vec<Term>,
+    constants: Vec<Term>,
     inductives: Vec<Inductive>,
 }
 
-type Identifier = String;
+pub type Identifier = String;
 
 pub struct Inductive {
     name: Identifier,
@@ -69,7 +69,7 @@ pub enum Name {
 }
 
 pub enum Level {
-    Prop, 
+    Prop,
     Set,
     Level(String),
     DeBruijnIndex(DeBruijnIndex),
