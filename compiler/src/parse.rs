@@ -1,4 +1,6 @@
 mod ast {
+    use crate::hir::Identifier;
+
     pub struct AST {
         declarations: Vec<Declaration>,
     }
@@ -6,79 +8,69 @@ mod ast {
     pub enum Declaration {
         Enum(Enum),
         Func(Func),
+        Let(Let),
         Comment(String),
     }
 
     pub enum Expression {
-        Name(String),
+        Identifier(Identifier),
+        // Sort
         // Dependent Product
+        Func(Func),
         Let(Let),
         FunctionCall(FunctionCall),
+        // Constant - UniverseInstance?
+        // Inductive - UniverseInstance?
+        Constructor(ConstructorIdentifier), // UniverseInstance?
         Match(Match),
-        // Constructor
-        Declaration(Declaration),
+        Comment(String, Box<Expression>),
     }
 
     pub struct Enum {
-        name: String,
-        parameters: Vec<Parameter>,
-        indexed_by: Vec<Parameter>,
-        return_type: Box<Expression>,
-        variants: Vec<Variant>,
+        name: Identifier,
+        parameters: Vec<Expression>,
+        arity: Box<Expression>,
+        constructors: Vec<Constructor>,
     }
 
-    pub struct Parameter {
-        name: Name,
-        typ: Expression,
-    }
-
-    pub enum Name {
-        Anonymous,
-        Name(String),
-        Constructor(ConstructorName),
-    }
-
-    pub struct ConstructorName {
-        enumeration: String,
-        variant: String,
-    }
-
-    pub struct Variant {
-        name: String,
-        parameters: Vec<Parameter>,
-        indexes: Vec<Parameter>,
+    pub struct Constructor {
+        name: Identifier,
+        parameters: Vec<Expression>,
         return_type: Expression,
     }
 
     pub struct Func {
         name: Name,
         recursive: bool,
-        parameters: Vec<Parameter>,
-        return_type: Box<Expression>,
+        typ: Box<Expression>,
         body: Box<Expression>,
     }
 
-    pub struct Match {
-        scrutinee_name: String,
-        return_type: Box<Expression>,
-        arms: Vec<Arm>,
-    }
-
-    pub struct Arm {
-        name: ConstructorName,
-        parameters: Vec<Parameter>,
-        body: Expression,
+    pub enum Name {
+        Anonymous,
+        Name(Identifier),
     }
 
     pub struct Let {
-        name: String,
-        typ: Box<Expression>,
+        name: Identifier,
         expression: Box<Expression>,
+        expression_type: Box<Expression>,
         then: Box<Expression>,
     }
 
     pub struct FunctionCall {
         function: Box<Expression>,
         arguments: Vec<Expression>,
+    }
+
+    pub struct ConstructorIdentifier {
+        enumeration: Identifier,
+        variant: Identifier,
+    }
+
+    pub struct Match {
+        discriminee: Box<Expression>,
+        expression_type: Box<Expression>,
+        arms: Vec<(ConstructorIdentifier, Expression)>,
     }
 }
