@@ -1,7 +1,7 @@
 pub mod check {
     use crate::hir::ir::{Declaration, Inductive, Name, Term, HIR};
 
-    mod GlobalEnvironment {
+    pub mod GlobalEnvironment {
 
         use super::*;
 

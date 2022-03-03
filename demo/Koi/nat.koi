@@ -1,0 +1,11 @@
+enum Nat() : Type 0 {
+  O() -> Nat, 
+  S(_ : Nat) -> Nat,
+}
+
+func rec add(a b : Nat) -> Nat {
+  match a -> Nat {
+    Nat.O => b
+    Nat.S(x : Nat) => add(x, Nat.S(b))
+  }
+}

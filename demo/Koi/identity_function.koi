@@ -1,0 +1,3 @@
+func identity(a : Type) -> Type {
+  a
+}
