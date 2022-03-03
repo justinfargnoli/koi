@@ -1,0 +1,3 @@
+[submodule "compiler/llvm/llvm-project"]
+	path = compiler/llvm/llvm-project
+	url = https://github.com/llvm/llvm-project
