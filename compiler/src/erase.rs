@@ -1,3 +1,0 @@
-mod ir {}
-
-mod pass {}
