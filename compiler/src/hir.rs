@@ -1,6 +1,16 @@
 pub mod ir {
+    use universe::{Universe, UniverseInstance};
+
     pub struct HIR {
         pub declarations: Vec<Declaration>,
+    }
+
+    impl HIR {
+        pub fn new() -> HIR {
+            HIR {
+                declarations: Vec::new(),
+            }
+        }
     }
 
     pub enum Declaration {
@@ -24,8 +34,6 @@ pub mod ir {
 
     pub type DeBruijnIndex = usize;
     type BranchesCount = usize;
-    type Universe = Vec<(Level, bool)>; // Vec must be non-empty
-    type UniverseInstance = Vec<Level>;
 
     #[derive(Clone)]
     pub enum Term {
@@ -75,12 +83,84 @@ pub mod ir {
         Named(Identifier),
     }
 
-    #[derive(Clone)]
-    pub enum Level {
-        Prop,
-        Set,
-        Level(String),
-        DeBruijnIndex(DeBruijnIndex),
+    pub mod universe {
+        use super::DeBruijnIndex;
+
+        #[derive(Clone)]
+        pub struct Universe(Vec<Expression>); // Vec must be non-empty
+
+        impl Universe {
+            pub fn build_one(expression: Expression) -> Universe {
+                Universe(vec![expression])
+            }
+
+            fn is_prop(&self) -> bool {
+                self.0.iter().all(|expression| expression.is_prop())
+            }
+
+            pub fn sort_of_product(from_sort: &Self, to_sort: &Self) -> Self {
+                if to_sort.is_prop() {
+                    to_sort.clone()
+                } else {
+                    Self::supremum(from_sort, to_sort)
+                }
+            }
+
+            fn supremum(universe1: &Self, universe2: &Self) -> Self {
+                let mut sup = universe1.0.clone();
+                sup.append(&mut universe2.0.clone());
+                Universe(sup)
+            }
+
+            pub fn length(&self) -> usize {
+                self.0.len()
+            }
+
+            pub fn first(&self) -> &Expression {
+                self.0.first().unwrap()
+            }
+        }
+
+        #[derive(Clone)]
+        pub struct Expression(Level, pub bool);
+
+        impl Expression {
+            pub fn build(level: Level, plus_one: bool) -> Expression {
+                Expression(level, plus_one)
+            }
+
+            pub fn level(&self) -> &Level {
+                &self.0
+            }
+
+            pub fn is_prop(&self) -> bool {
+                match self {
+                    Expression(Level::Prop, _) => true,
+                    _ => false,
+                }
+            }
+
+            pub fn type_1() -> Expression {
+                Expression(Level::Set, true)
+            }
+
+            pub fn successor(&self) -> Self {
+                match self {
+                    Expression(level, false) => Expression(level.clone(), true),
+                    _ => panic!(),
+                }
+            }
+        }
+
+        pub type UniverseInstance = Vec<Level>;
+
+        #[derive(Clone)]
+        pub enum Level {
+            Prop,
+            Set,
+            Level(String),
+            DeBruijnIndex(DeBruijnIndex),
+        }
     }
 }
 

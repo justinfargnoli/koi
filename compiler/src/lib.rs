@@ -1,10 +1,11 @@
 pub mod codegen;
-pub mod erase;
 pub mod hir;
 pub mod parse;
 pub mod typ;
 
-// TODO: Termination checking
+// TODO: termination checking
+// TODO: make sure functions aren't named 'main'
+// TODO: implement currying
 
 #[cfg(test)]
 mod tests {
