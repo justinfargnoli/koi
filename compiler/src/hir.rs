@@ -35,18 +35,18 @@ pub mod ir {
     pub type DeBruijnIndex = usize;
     type BranchesCount = usize;
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub enum Term {
         DeBruijnIndex(DeBruijnIndex),
         Sort(Universe),
         DependentProduct {
-            name: Name,
-            from_type: Box<Term>,
-            to_type: Box<Term>,
+            parameter_name: Name,
+            parameter_type: Box<Term>,
+            return_type: Box<Term>,
         },
         Lambda {
-            name: Name,
-            typ: Box<Term>,
+            parameter_name: Name,
+            parameter_type: Box<Term>, // The type of the argument to the function
             body: Box<Term>,
         },
         Let {
@@ -70,14 +70,14 @@ pub mod ir {
             branches: Vec<(BranchesCount, Term)>, // QUESTION: Can `BranchesCount` be removed here and we just use the position in the `Vec`?
         },
         Fixpoint {
-            name: Name,
-            typ: Box<Term>,
+            fixpoint_name: Name,
+            fixpoint_type: Box<Term>,
             body: Box<Term>,
             recursive_parameter_index: usize,
         },
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub enum Name {
         Anonymous,
         Named(Identifier),
@@ -85,8 +85,9 @@ pub mod ir {
 
     pub mod universe {
         use super::DeBruijnIndex;
+        use std::fmt::Debug;
 
-        #[derive(Clone)]
+        #[derive(Clone, Debug)]
         pub struct Universe(Vec<Expression>); // Vec must be non-empty
 
         impl Universe {
@@ -121,7 +122,7 @@ pub mod ir {
             }
         }
 
-        #[derive(Clone)]
+        #[derive(Clone, Debug)]
         pub struct Expression(Level, pub bool);
 
         impl Expression {
@@ -152,9 +153,10 @@ pub mod ir {
             }
         }
 
-        pub type UniverseInstance = Vec<Level>;
+        #[derive(Clone, Debug)]
+        pub struct UniverseInstance(Vec<Level>);
 
-        #[derive(Clone)]
+        #[derive(Clone, Debug)]
         pub enum Level {
             Prop,
             Set,

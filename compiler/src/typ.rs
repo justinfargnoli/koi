@@ -57,6 +57,7 @@ pub mod check {
                 }
             }
 
+            #[derive(Debug)]
             pub struct Declaration {
                 name: Name,
                 body: Option<Term>,
@@ -106,9 +107,9 @@ pub mod check {
                 }
             }
             Term::DependentProduct {
-                name,
-                from_type,
-                to_type,
+                parameter_name: name,
+                parameter_type: from_type,
+                return_type: to_type,
             } => {
                 let from_type_type = type_check_term(global, local, from_type);
                 let from_type_universe = match from_type_type {
@@ -129,17 +130,21 @@ pub mod check {
                     to_type_universe,
                 ))
             }
-            Term::Lambda { name, typ, body } => {
-                type_check_term(global, local, typ);
+            Term::Lambda {
+                parameter_name,
+                parameter_type,
+                body,
+            } => {
+                type_check_term(global, local, parameter_type);
 
-                local.push_declaration(name.clone(), None, (**typ).clone());
+                local.push_declaration(parameter_name.clone(), None, (**parameter_type).clone());
                 let body_type = type_check_term(global, local, body);
                 local.pop_declaration();
 
                 Term::DependentProduct {
-                    name: name.clone(),
-                    from_type: typ.clone(),
-                    to_type: Box::new(body_type),
+                    parameter_name: parameter_name.clone(),
+                    parameter_type: parameter_type.clone(),
+                    return_type: Box::new(body_type),
                 }
             }
             _ => todo!(),
@@ -157,25 +162,35 @@ pub mod check {
         use super::*;
         use crate::hir::ir::{universe::Level, Name};
 
+        fn test_type_check_declaration(declaration: Declaration) {
+            let mut hir = HIR::new();
+            hir.declarations.push(declaration);
+            type_check_hir(&hir);
+        }
+
         #[test]
         fn identity_function() {
-            let mut hir = HIR::new();
-            hir.declarations.push(Declaration::Constant(Term::Lambda {
-                name: Name::Named("identity_function".to_string()),
-                typ: Box::new(Term::DependentProduct {
-                    name: Name::Named("a".to_string()),
-                    from_type: Box::new(Term::Sort(Universe::build_one(Expression::build(
-                        Level::Set,
-                        false,
-                    )))),
-                    to_type: Box::new(Term::Sort(Universe::build_one(Expression::build(
-                        Level::Set,
-                        false,
-                    )))),
-                }),
+            test_type_check_declaration(Declaration::Constant(Term::Lambda {
+                parameter_name: Name::Named("a".to_string()),
+                parameter_type: Box::new(Term::Sort(Universe::build_one(Expression::build(
+                    Level::Set,
+                    false,
+                )))),
                 body: Box::new(Term::DeBruijnIndex(0)),
-            }));
-            type_check_hir(&hir);
+            }))
+        }
+
+        #[test]
+        #[should_panic]
+        fn identity_function_malformed() {
+            test_type_check_declaration(Declaration::Constant(Term::Lambda {
+                parameter_name: Name::Named("a".to_string()),
+                parameter_type: Box::new(Term::Sort(Universe::build_one(Expression::build(
+                    Level::Set,
+                    false,
+                )))),
+                body: Box::new(Term::DeBruijnIndex(1)),
+            }))
         }
     }
 }
