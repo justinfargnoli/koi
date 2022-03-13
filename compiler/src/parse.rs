@@ -74,5 +74,3 @@ mod ir {
         arms: Vec<(ConstructorIdentifier, Expression)>,
     }
 }
-
-mod pass {}

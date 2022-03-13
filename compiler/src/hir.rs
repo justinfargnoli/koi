@@ -20,22 +20,24 @@ pub mod ir {
 
     pub type Identifier = String;
 
+    #[derive(Clone)]
     pub struct Inductive {
-        name: Identifier,
-        parameters: Vec<Term>,
-        arity: Term,
-        constructors: Vec<Constructor>,
+        pub name: Identifier,
+        pub parameters: Vec<Term>,
+        pub arity: Term,
+        pub constructors: Vec<Constructor>,
     }
 
+    #[derive(Clone)]
     pub struct Constructor {
-        name: Identifier,
-        typ: Term,
+        pub name: Identifier,
+        pub typ: Term,
     }
 
     pub type DeBruijnIndex = usize;
     type BranchesCount = usize;
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, PartialEq)]
     pub enum Term {
         DeBruijnIndex(DeBruijnIndex),
         Sort(Universe),
@@ -77,7 +79,7 @@ pub mod ir {
         },
     }
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, PartialEq)]
     pub enum Name {
         Anonymous,
         Named(Identifier),
@@ -85,9 +87,8 @@ pub mod ir {
 
     pub mod universe {
         use super::DeBruijnIndex;
-        use std::fmt::Debug;
 
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, PartialEq)]
         pub struct Universe(Vec<Expression>); // Vec must be non-empty
 
         impl Universe {
@@ -122,7 +123,7 @@ pub mod ir {
             }
         }
 
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, PartialEq)]
         pub struct Expression(Level, pub bool);
 
         impl Expression {
@@ -151,12 +152,22 @@ pub mod ir {
                     _ => panic!(),
                 }
             }
+
+            pub fn set() -> Expression {
+                Expression(Level::Set, false)
+            }
         }
 
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, PartialEq)]
         pub struct UniverseInstance(Vec<Level>);
 
-        #[derive(Clone, Debug)]
+        impl UniverseInstance {
+            pub fn empty() -> UniverseInstance {
+                UniverseInstance(Vec::new())
+            }
+        }
+
+        #[derive(Clone, Debug, PartialEq)]
         pub enum Level {
             Prop,
             Set,
@@ -165,5 +176,3 @@ pub mod ir {
         }
     }
 }
-
-mod pass {}
