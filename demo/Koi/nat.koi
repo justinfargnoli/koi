@@ -6,6 +6,6 @@ enum Nat() : Type 0 {
 func rec add(a b : Nat) -> Nat {
   match a -> Nat {
     Nat.O => b
-    Nat.S(x : Nat) => add(x, Nat.S(b))
+    Nat.S(x : Nat) => Nat.S(add(x, b))
   }
 }

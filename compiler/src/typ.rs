@@ -242,10 +242,10 @@ pub mod check {
             });
         }
 
-        #[test]
-        fn nat() {
+        fn inductive_nat() -> Inductive {
             let natural = "Natural".to_string();
-            type_check_fresh_inductive(&Inductive {
+
+            Inductive {
                 name: natural.clone(),
                 parameters: Vec::new(),
                 arity: Term::Sort(Universe::build_one(Expression::set())),
@@ -269,7 +269,88 @@ pub mod check {
                         },
                     },
                 ],
-            })
+            }
+        }
+
+        #[test]
+        fn nat_type() {
+            type_check_fresh_inductive(&inductive_nat())
+        }
+
+        #[test]
+        fn nat_add() {
+            // func rec add(a b : Nat) -> Nat {
+            //     match a -> Nat {
+            //       Nat.O => b
+            //       Nat.S(x : Nat) => Nat.S(add(x, b))
+            //     }
+            // }
+
+            let nat = inductive_nat();
+
+            let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
+            let a = Name::Named("a".to_string());
+            let b = Name::Named("b".to_string());
+
+            let recursive_add = Term::Fixpoint {
+                fixpoint_name: Name::Named("add".to_string()),
+                fixpoint_type: Box::new(Term::DependentProduct {
+                    parameter_name: a.clone(),
+                    parameter_type: nat_term.clone(),
+                    return_type: Box::new(Term::DependentProduct {
+                        parameter_name: b.clone(),
+                        parameter_type: nat_term.clone(),
+                        return_type: nat_term.clone(),
+                    }),
+                }),
+                body: Box::new(Term::Lambda {
+                    parameter_name: a.clone(),
+                    parameter_type: nat_term.clone(),
+                    body: Box::new(Term::Lambda {
+                        parameter_name: b.clone(),
+                        parameter_type: nat_term.clone(),
+                        body: Box::new(Term::Match {
+                            inductive_name: nat.name.clone(),
+                            parameter_count: 0,
+                            type_info: Box::new(Term::Lambda {
+                                parameter_name: a.clone(),
+                                parameter_type: nat_term.clone(),
+                                body: nat_term.clone(),
+                            }),
+                            discriminee: Box::new(Term::DeBruijnIndex(1)),
+                            branches: vec![
+                                (0, Term::DeBruijnIndex(0)),
+                                (
+                                    1,
+                                    Term::Lambda {
+                                        parameter_name: Name::Named("x".to_string()),
+                                        parameter_type: nat_term.clone(),
+                                        body: Box::new(Term::Application {
+                                            function: Box::new(Term::Constructor(
+                                                nat.name.clone(),
+                                                1,
+                                                UniverseInstance::empty(),
+                                            )),
+                                            arguments: vec![Term::Application {
+                                                function: Box::new(Term::DeBruijnIndex(3)),
+                                                arguments: vec![
+                                                    Term::DeBruijnIndex(0),
+                                                    Term::DeBruijnIndex(1),
+                                                ],
+                                            }],
+                                        }),
+                                    },
+                                ),
+                            ],
+                        }),
+                    }),
+                }),
+                recursive_parameter_index: 0,
+            };
+
+            type_check_hir(&HIR {
+                declarations: vec![Declaration::Inductive(nat), Declaration::Constant(recursive_add)],
+            });
         }
     }
 }

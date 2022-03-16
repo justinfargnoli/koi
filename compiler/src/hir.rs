@@ -67,7 +67,7 @@ pub mod ir {
         Match {
             inductive_name: String,
             parameter_count: BranchesCount,
-            typ: Box<Term>,
+            type_info: Box<Term>,
             discriminee: Box<Term>,
             branches: Vec<(BranchesCount, Term)>, // QUESTION: Can `BranchesCount` be removed here and we just use the position in the `Vec`?
         },
