@@ -108,9 +108,9 @@ pub mod ir {
                 }
             }
 
-            fn supremum(universe1: &Self, universe2: &Self) -> Self {
-                let mut sup = universe1.0.clone();
-                sup.append(&mut universe2.0.clone());
+            pub fn supremum(&self, other: &Self) -> Self {
+                let mut sup = self.0.clone();
+                sup.append(&mut other.0.clone());
                 Universe(sup)
             }
 
@@ -120,6 +120,13 @@ pub mod ir {
 
             pub fn first(&self) -> &Expression {
                 self.0.first().unwrap()
+            }
+
+            pub fn representative_expression(&self) -> &Expression {
+                let mut iterator = self.0.iter();
+                let expression = iterator.next().unwrap();
+                iterator.for_each(|expr| assert_eq!(expr, expression));
+                expression
             }
         }
 

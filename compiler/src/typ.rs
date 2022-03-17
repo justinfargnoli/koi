@@ -194,7 +194,19 @@ pub mod check {
                 Term::Sort(universe) => universe.clone(),
                 Term::Inductive(name, _universe_instance) => {
                     // Q: does `universe_instance` have anything to do with this?
+                    let inductive = self.global.lookup_inductive(name);
+                    match inductive.arity {
+                        Term::Sort(universe) => universe,
+                        _ => panic!("{:#?}", inductive.arity),
+                    }
                 }
+                Term::DependentProduct {
+                    parameter_name,
+                    parameter_type,
+                    return_type,
+                } => self
+                    .sort_of(parameter_type)
+                    .supremum(&self.sort_of(return_type)),
                 _ => todo!("{:#?}", term),
             }
         }
@@ -220,13 +232,15 @@ pub mod check {
             Context::type_check_fresh_term(&inductive.arity);
 
             self.global.push_inductive(inductive.clone());
-            let mut constructor_sorts = inductive
+            let mut constructor_universe_expressions = inductive
                 .constructors
                 .iter()
-                .map(|constructor| self.type_check_term(&constructor.typ));
-            if let Some(first_constructor_sort) = constructor_sorts.next() {
-                assert!(constructor_sorts
-                    .all(|constructor_sort| constructor_sort == first_constructor_sort))
+                .map(|constructor| self.sort_of(&constructor.typ))
+                .map(|universe| universe.representative_expression().clone());
+            if let Some(first_universe_expression) = constructor_universe_expressions.next() {
+                constructor_universe_expressions.for_each(|universe_expression| {
+                    assert_eq!(universe_expression, first_universe_expression)
+                })
             }
         }
     }
