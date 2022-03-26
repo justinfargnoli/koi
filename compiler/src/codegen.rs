@@ -263,41 +263,14 @@ mod environment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::ir::{
-        universe::{Expression, Universe, UniverseInstance},
-        Constructor, Name,
-    };
+    use crate::hir::examples;
 
     #[test]
     fn nat() {
+        let inductive_nat = &examples::nat();
         let natural = "Natural".to_string();
         let zero = "Zero".to_string();
         let successor = "Successor".to_string();
-        let inductive_nat = &Inductive {
-            name: natural.clone(),
-            parameters: Vec::new(),
-            arity: Term::Sort(Universe::build_one(Expression::set())),
-            constructors: vec![
-                Constructor {
-                    name: zero.clone(),
-                    typ: Term::Inductive(natural.clone(), UniverseInstance::empty()),
-                },
-                Constructor {
-                    name: successor.clone(),
-                    typ: Term::DependentProduct {
-                        parameter_name: Name::Anonymous,
-                        parameter_type: Box::new(Term::Inductive(
-                            natural.clone(),
-                            UniverseInstance::empty(),
-                        )),
-                        return_type: Box::new(Term::Inductive(
-                            natural.clone(),
-                            UniverseInstance::empty(),
-                        )),
-                    },
-                },
-            ],
-        };
 
         let inkwell_context = InkwellContext::create();
         let mut context = Context::build(&inkwell_context);

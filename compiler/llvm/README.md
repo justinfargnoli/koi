@@ -7,6 +7,5 @@ cmake -G Ninja ../llvm \
 ```
 
 ```
-export KOI_WORKING_DIRECTORY="$(pwd)"
-export LLVM_SYS_130_PREFIX="$KOI_WORKING_DIRECTORY/compiler/llvm/llvm-project/build"
+export KOI_WORKING_DIRECTORY="$(pwd)" && export LLVM_SYS_130_PREFIX="$KOI_WORKING_DIRECTORY/compiler/llvm/llvm-project/build/"
 ```

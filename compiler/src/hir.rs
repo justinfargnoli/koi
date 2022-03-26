@@ -183,3 +183,165 @@ pub mod ir {
         }
     }
 }
+
+pub mod examples {
+    use super::ir::{universe::*, *};
+
+    /// enum Unit() : Type 0 {}
+    pub fn unit() -> Inductive {
+        Inductive {
+            name: "Unit".to_string(),
+            parameters: Vec::new(),
+            arity: Term::Sort(Universe::build_one(Expression::set())),
+            constructors: Vec::new(),
+        }
+    }
+
+    /// enum Nat() : Type 0 {
+    ///     O() -> Nat,
+    ///     S(_ : Nat) -> Nat,
+    /// }
+    pub fn nat() -> Inductive {
+        let natural = "Natural".to_string();
+        let zero = "Zero".to_string();
+        let successor = "Successor".to_string();
+
+        Inductive {
+            name: natural.clone(),
+            parameters: Vec::new(),
+            arity: Term::Sort(Universe::build_one(Expression::set())),
+            constructors: vec![
+                Constructor {
+                    name: zero.clone(),
+                    typ: Term::Inductive(natural.clone(), UniverseInstance::empty()),
+                },
+                Constructor {
+                    name: successor.clone(),
+                    typ: Term::DependentProduct {
+                        parameter_name: Name::Anonymous,
+                        parameter_type: Box::new(Term::Inductive(
+                            natural.clone(),
+                            UniverseInstance::empty(),
+                        )),
+                        return_type: Box::new(Term::Inductive(
+                            natural.clone(),
+                            UniverseInstance::empty(),
+                        )),
+                    },
+                },
+            ],
+        }
+    }
+
+    /// func rec add(a b : Nat) -> Nat {
+    ///     match a -> Nat {
+    ///       Nat.O => b
+    ///       Nat.S(x : Nat) => Nat.S(add(x, b))
+    ///     }
+    /// }
+    pub fn nat_add() -> Term {
+        let nat = nat();
+
+        let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
+        let a = Name::Named("a".to_string());
+        let b = Name::Named("b".to_string());
+
+        Term::Fixpoint {
+            fixpoint_name: Name::Named("add".to_string()),
+            fixpoint_type: Box::new(Term::DependentProduct {
+                parameter_name: a.clone(),
+                parameter_type: nat_term.clone(),
+                return_type: Box::new(Term::DependentProduct {
+                    parameter_name: b.clone(),
+                    parameter_type: nat_term.clone(),
+                    return_type: nat_term.clone(),
+                }),
+            }),
+            body: Box::new(Term::Lambda {
+                parameter_name: a.clone(),
+                parameter_type: nat_term.clone(),
+                body: Box::new(Term::Lambda {
+                    parameter_name: b.clone(),
+                    parameter_type: nat_term.clone(),
+                    body: Box::new(Term::Match {
+                        inductive_name: nat.name.clone(),
+                        parameter_count: 0,
+                        type_info: Box::new(Term::Lambda {
+                            parameter_name: a.clone(),
+                            parameter_type: nat_term.clone(),
+                            body: nat_term.clone(),
+                        }),
+                        discriminee: Box::new(Term::DeBruijnIndex(1)),
+                        branches: vec![
+                            (0, Term::DeBruijnIndex(0)),
+                            (
+                                1,
+                                Term::Lambda {
+                                    parameter_name: Name::Named("x".to_string()),
+                                    parameter_type: nat_term.clone(),
+                                    body: Box::new(Term::Application {
+                                        function: Box::new(Term::Constructor(
+                                            nat.name.clone(),
+                                            1,
+                                            UniverseInstance::empty(),
+                                        )),
+                                        arguments: vec![Term::Application {
+                                            function: Box::new(Term::DeBruijnIndex(3)),
+                                            arguments: vec![
+                                                Term::DeBruijnIndex(0),
+                                                Term::DeBruijnIndex(1),
+                                            ],
+                                        }],
+                                    }),
+                                },
+                            ),
+                        ],
+                    }),
+                }),
+            }),
+            recursive_parameter_index: 0,
+        }
+    }
+
+    pub fn nat_identity() -> Term {
+        let nat = nat();
+
+        let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
+        let a = Name::Named("a".to_string());
+
+        Term::Lambda {
+            parameter_name: Name::Named("identity".to_string()),
+            parameter_type: Box::new(Term::DependentProduct {
+                parameter_name: a.clone(),
+                parameter_type: nat_term.clone(),
+                return_type: nat_term.clone(),
+            }),
+            body: Box::new(Term::DeBruijnIndex(0)),
+        }
+    }
+
+    pub fn nat_one() -> Term {
+        let nat = nat();
+        let natural = "Natural".to_string();
+
+        let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
+        let a = Name::Named("a".to_string());
+
+        Term::Lambda {
+            parameter_name: Name::Anonymous,
+            parameter_type: nat_term.clone(),
+            body: Box::new(Term::Application {
+                function: Box::new(Term::Constructor(
+                    natural.clone(),
+                    1,
+                    UniverseInstance::empty(),
+                )),
+                arguments: vec![Term::Constructor(
+                    natural.clone(),
+                    0,
+                    UniverseInstance::empty(),
+                )],
+            }),
+        }
+    }
+}
