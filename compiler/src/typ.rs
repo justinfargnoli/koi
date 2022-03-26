@@ -185,6 +185,44 @@ pub mod check {
                     // TODO: handle universes
                     term.clone()
                 }
+                Term::Fixpoint {
+                    fixpoint_name,
+                    fixpoint_type,
+                    body,
+                    ..
+                } => {
+                    self.type_check_term(fixpoint_type);
+
+                    self.local
+                        .push_declaration(fixpoint_name.clone(), (**fixpoint_type).clone());
+                    assert_eq!(**fixpoint_type, self.type_check_term(body));
+                    self.local.pop_declaration();
+
+                    (**fixpoint_type).clone()
+                }
+                Term::Match {
+                    inductive_name,
+                    parameter_count,
+                    type_info,
+                    discriminee,
+                    branches,
+                } => todo!("Match"),
+                Term::Application {
+                    function,
+                    arguments,
+                } => {
+                    let function_type = self.type_check_term(function);
+
+                    if let Term::Application { .. } = **function {
+                        panic!()
+                    }
+
+                    assert_ne!(arguments.len(), 0);
+
+                    arguments.iter().for_each(|argument| todo!());
+
+                    todo!()
+                }
                 _ => todo!("{:#?}", term),
             }
         }
@@ -248,7 +286,7 @@ pub mod check {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::hir::ir::{universe::UniverseInstance, Constructor, Name};
+        use crate::hir::{examples, ir::Name};
 
         #[test]
         fn identity_function() {
@@ -277,120 +315,42 @@ pub mod check {
             });
         }
 
-        fn inductive_nat() -> Inductive {
-            // enum Nat() : Type 0 {
-            //     O() -> Nat,
-            //     S(_ : Nat) -> Nat,
-            // }
-
-            let natural = "Natural".to_string();
-            Inductive {
-                name: natural.clone(),
-                parameters: Vec::new(),
-                arity: Term::Sort(Universe::build_one(Expression::set())),
-                constructors: vec![
-                    Constructor {
-                        name: "Zero".to_string(),
-                        typ: Term::Inductive(natural.clone(), UniverseInstance::empty()),
-                    },
-                    Constructor {
-                        name: "Successor".to_string(),
-                        typ: Term::DependentProduct {
-                            parameter_name: Name::Anonymous,
-                            parameter_type: Box::new(Term::Inductive(
-                                natural.clone(),
-                                UniverseInstance::empty(),
-                            )),
-                            return_type: Box::new(Term::Inductive(
-                                natural.clone(),
-                                UniverseInstance::empty(),
-                            )),
-                        },
-                    },
-                ],
-            }
+        #[test]
+        fn unit() {
+            Context::type_check_fresh_inductive(&examples::unit())
         }
 
         #[test]
         fn nat_type() {
-            Context::type_check_fresh_inductive(&inductive_nat())
+            Context::type_check_fresh_inductive(&examples::nat())
         }
 
         #[test]
         fn nat_add() {
-            // func rec add(a b : Nat) -> Nat {
-            //     match a -> Nat {
-            //       Nat.O => b
-            //       Nat.S(x : Nat) => Nat.S(add(x, b))
-            //     }
-            // }
-
-            let nat = inductive_nat();
-
-            let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
-            let a = Name::Named("a".to_string());
-            let b = Name::Named("b".to_string());
-
-            let recursive_add = Term::Fixpoint {
-                fixpoint_name: Name::Named("add".to_string()),
-                fixpoint_type: Box::new(Term::DependentProduct {
-                    parameter_name: a.clone(),
-                    parameter_type: nat_term.clone(),
-                    return_type: Box::new(Term::DependentProduct {
-                        parameter_name: b.clone(),
-                        parameter_type: nat_term.clone(),
-                        return_type: nat_term.clone(),
-                    }),
-                }),
-                body: Box::new(Term::Lambda {
-                    parameter_name: a.clone(),
-                    parameter_type: nat_term.clone(),
-                    body: Box::new(Term::Lambda {
-                        parameter_name: b.clone(),
-                        parameter_type: nat_term.clone(),
-                        body: Box::new(Term::Match {
-                            inductive_name: nat.name.clone(),
-                            parameter_count: 0,
-                            type_info: Box::new(Term::Lambda {
-                                parameter_name: a.clone(),
-                                parameter_type: nat_term.clone(),
-                                body: nat_term.clone(),
-                            }),
-                            discriminee: Box::new(Term::DeBruijnIndex(1)),
-                            branches: vec![
-                                (0, Term::DeBruijnIndex(0)),
-                                (
-                                    1,
-                                    Term::Lambda {
-                                        parameter_name: Name::Named("x".to_string()),
-                                        parameter_type: nat_term.clone(),
-                                        body: Box::new(Term::Application {
-                                            function: Box::new(Term::Constructor(
-                                                nat.name.clone(),
-                                                1,
-                                                UniverseInstance::empty(),
-                                            )),
-                                            arguments: vec![Term::Application {
-                                                function: Box::new(Term::DeBruijnIndex(3)),
-                                                arguments: vec![
-                                                    Term::DeBruijnIndex(0),
-                                                    Term::DeBruijnIndex(1),
-                                                ],
-                                            }],
-                                        }),
-                                    },
-                                ),
-                            ],
-                        }),
-                    }),
-                }),
-                recursive_parameter_index: 0,
-            };
-
             Context::type_check_hir(&HIR {
                 declarations: vec![
-                    Declaration::Inductive(nat),
-                    Declaration::Constant(recursive_add),
+                    Declaration::Inductive(examples::nat()),
+                    Declaration::Constant(examples::nat_add()),
+                ],
+            });
+        }
+
+        #[test]
+        fn nat_identity() {
+            Context::type_check_hir(&HIR {
+                declarations: vec![
+                    Declaration::Inductive(examples::nat()),
+                    Declaration::Constant(examples::nat_identity()),
+                ],
+            });
+        }
+
+        #[test]
+        fn nat_one() {
+            Context::type_check_hir(&HIR {
+                declarations: vec![
+                    Declaration::Inductive(examples::nat()),
+                    Declaration::Constant(examples::nat_one()),
                 ],
             });
         }
