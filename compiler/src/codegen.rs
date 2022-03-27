@@ -4,132 +4,10 @@ use inkwell::{
     builder::Builder,
     context::Context as InkwellContext,
     module::Module,
-    types::{BasicType, BasicTypeEnum, StructType},
-    values::BasicValueEnum,
+    types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, PointerType, StructType},
+    values::{BasicValue, BasicValueEnum},
     AddressSpace,
 };
-
-pub struct Context<'ctx> {
-    context: &'ctx InkwellContext,
-    builder: Builder<'ctx>,
-    module: Module<'ctx>,
-    global: environment::global::Environment<'ctx>,
-}
-
-impl<'ctx> Context<'ctx> {
-    pub fn build(inkwell_context: &InkwellContext) -> Context {
-        Context {
-            context: inkwell_context,
-            builder: inkwell_context.create_builder(),
-            module: inkwell_context.create_module("koi"),
-            global: environment::global::Environment::new(),
-        }
-    }
-
-    pub fn codegen_hir(&mut self, hir: &HIR) {
-        for declaration in &hir.declarations {
-            match declaration {
-                Declaration::Constant(term) => self.codegen_term(&term),
-                Declaration::Inductive(inductive) => self.codegen_inductive(&inductive),
-            }
-        }
-    }
-
-    pub fn codegen_term(&mut self, term: &Term) {
-        self.codegen_term_helper(term, &mut local::Environment::new());
-    }
-
-    fn codegen_term_helper(
-        &mut self,
-        term: &Term,
-        local: &mut local::Environment<'ctx>,
-    ) -> BasicValueEnum<'ctx> {
-        match term {
-            Term::DeBruijnIndex(debruijn_index) => local.lookup(*debruijn_index).clone(),
-            _ => todo!(),
-        }
-    }
-
-    pub fn constructor_llvm_name(inductive_name: &str, constructor_name: &str) -> String {
-        format!("{}_{}", inductive_name, constructor_name)
-    }
-
-    fn codegen_constructor_type(&self, constructor_type: &Term) -> Vec<BasicTypeEnum> {
-        match constructor_type {
-            Term::Inductive(name, _) => {
-                vec![self
-                    .global
-                    .lookup_inductive_llvm_type(&name)
-                    .as_basic_type_enum()]
-            }
-            Term::DependentProduct {
-                parameter_name: _,
-                parameter_type,
-                return_type,
-            } => {
-                let mut field_types = self.codegen_constructor_type(&parameter_type);
-                field_types.append(&mut self.codegen_constructor_type(&return_type));
-                field_types
-            }
-            _ => panic!(),
-        }
-    }
-
-    pub fn codegen_inductive(&mut self, inductive: &Inductive) {
-        let inductive_llvm_struct_type = self.context.opaque_struct_type(&inductive.name);
-
-        self.global.push_inductive(
-            inductive.name.clone(),
-            inductive_llvm_struct_type.ptr_type(AddressSpace::Generic),
-        );
-
-        let constructor_llvm_types: Vec<StructType> = inductive
-            .constructors
-            .iter()
-            .map(|constructor| {
-                let constructor_llvm_type =
-                    self.context
-                        .opaque_struct_type(&Context::constructor_llvm_name(
-                            &inductive.name,
-                            &constructor.name,
-                        ));
-
-                let field_types = self.codegen_constructor_type(&constructor.typ);
-                constructor_llvm_type.set_body(&field_types, false);
-
-                constructor_llvm_type
-            })
-            .collect();
-
-        let largest_constructor_llvm_type = constructor_llvm_types
-            .iter()
-            .map(|constructor_llvm_type| {
-                let field_count = constructor_llvm_type.get_field_types().len();
-                (field_count, constructor_llvm_type)
-            })
-            .max_by(|(field_count_1, _), (field_count_2, _)| {
-                usize::cmp(field_count_1, field_count_2)
-            })
-            .and_then(|(_, constructor)| Some(constructor));
-        if let Some(constructor_type) = largest_constructor_llvm_type {
-            inductive_llvm_struct_type.set_body(&constructor_type.get_field_types(), false);
-        }
-
-        let inductive_llvm_constructors = constructor_llvm_types
-            .into_iter()
-            .enumerate()
-            .map(|(i, constructor_llvm_type)| {
-                environment::global::Constructor::build(
-                    inductive.constructors.get(i).unwrap().name.clone(),
-                    constructor_llvm_type.ptr_type(AddressSpace::Generic),
-                )
-            })
-            .collect();
-
-        self.global
-            .add_constructors(&inductive.name, inductive_llvm_constructors);
-    }
-}
 
 mod environment {
     pub mod local {
@@ -147,13 +25,13 @@ mod environment {
                 }
             }
 
-            // pub fn push(&mut self, value: BasicValueEnum<'ctx>) {
-            //     self.debruijn_values.push(value)
-            // }
+            pub fn push(&mut self, value: BasicValueEnum<'ctx>) {
+                self.debruijn_values.push(value)
+            }
 
-            // pub fn pop(&mut self) {
-            //     self.debruijn_values.pop().unwrap();
-            // }
+            pub fn pop(&mut self) {
+                self.debruijn_values.pop().unwrap();
+            }
 
             pub fn lookup(&self, debruijn_index: DeBruijnIndex) -> &BasicValueEnum<'ctx> {
                 self.debruijn_values.get(debruijn_index).unwrap()
@@ -260,6 +138,175 @@ mod environment {
     }
 }
 
+pub struct Context<'ctx> {
+    context: &'ctx InkwellContext,
+    builder: Builder<'ctx>,
+    module: Module<'ctx>,
+    global: environment::global::Environment<'ctx>,
+}
+
+impl<'ctx> Context<'ctx> {
+    pub fn build(inkwell_context: &InkwellContext) -> Context {
+        Context {
+            context: inkwell_context,
+            builder: inkwell_context.create_builder(),
+            module: inkwell_context.create_module("koi"),
+            global: environment::global::Environment::new(),
+        }
+    }
+
+    pub fn codegen_hir(&mut self, hir: &HIR) {
+        for declaration in &hir.declarations {
+            match declaration {
+                Declaration::Constant(term) => self.codegen_term(&term),
+                Declaration::Inductive(inductive) => self.codegen_inductive(&inductive),
+            }
+        }
+        self.module.verify().unwrap();
+    }
+
+    pub fn codegen_term(&mut self, term: &Term) {
+        self.codegen_term_helper(term, &mut local::Environment::new());
+    }
+
+    fn llvm_pointer_type(&self) -> PointerType<'ctx> {
+        self.context.i8_type().ptr_type(AddressSpace::Generic)
+    }
+
+    fn codegen_term_helper(
+        &mut self,
+        term: &Term,
+        local: &mut local::Environment<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        match term {
+            Term::DeBruijnIndex(debruijn_index) => local.lookup(*debruijn_index).clone(),
+            Term::Lambda {
+                parameter_name,
+                body,
+                ..
+            } => {
+                let llvm_lambda_function_type = self.llvm_pointer_type().fn_type(
+                    &[BasicMetadataTypeEnum::from(self.llvm_pointer_type())],
+                    false,
+                );
+
+                // let llvm_lambda_function_pointer_type =
+                //     llvm_lambda_function_type.ptr_type(AddressSpace::Generic);
+                // let lambda_struct = self.context.struct_type(
+                //     &[llvm_lambda_function_pointer_type.as_basic_type_enum()],
+                //     false,
+                // );
+
+                let llvm_lambda_function_value =
+                    self.module
+                        .add_function("", llvm_lambda_function_type, None);
+
+                local.push(llvm_lambda_function_value.get_first_param().unwrap());
+
+                let llvm_function_entry_basic_block = self
+                    .context
+                    .append_basic_block(llvm_lambda_function_value, "");
+                self.builder
+                    .position_at_end(llvm_function_entry_basic_block);
+
+                let return_value = self.codegen_term_helper(body, local);
+
+                local.pop();
+
+                self.builder.build_return(Some(&return_value));
+
+                llvm_lambda_function_value.verify(true);
+
+                llvm_lambda_function_value
+                    .as_global_value()
+                    .as_pointer_value()
+                    .as_basic_value_enum()
+            }
+            _ => todo!("{:#?}", term),
+        }
+    }
+
+    pub fn constructor_llvm_name(inductive_name: &str, constructor_name: &str) -> String {
+        format!("{}_{}", inductive_name, constructor_name)
+    }
+
+    fn codegen_constructor_type(&self, constructor_type: &Term) -> Vec<BasicTypeEnum> {
+        match constructor_type {
+            Term::Inductive(name, _) => {
+                vec![self
+                    .global
+                    .lookup_inductive_llvm_type(&name)
+                    .as_basic_type_enum()]
+            }
+            Term::DependentProduct {
+                parameter_name: _,
+                parameter_type,
+                return_type,
+            } => {
+                let mut field_types = self.codegen_constructor_type(&parameter_type);
+                field_types.append(&mut self.codegen_constructor_type(&return_type));
+                field_types
+            }
+            _ => panic!(),
+        }
+    }
+
+    pub fn codegen_inductive(&mut self, inductive: &Inductive) {
+        let inductive_llvm_struct_type = self.context.opaque_struct_type(&inductive.name);
+
+        self.global.push_inductive(
+            inductive.name.clone(),
+            inductive_llvm_struct_type.ptr_type(AddressSpace::Generic),
+        );
+
+        let constructor_llvm_types: Vec<StructType> = inductive
+            .constructors
+            .iter()
+            .map(|constructor| {
+                let constructor_llvm_type =
+                    self.context
+                        .opaque_struct_type(&Context::constructor_llvm_name(
+                            &inductive.name,
+                            &constructor.name,
+                        ));
+
+                let field_types = self.codegen_constructor_type(&constructor.typ);
+                constructor_llvm_type.set_body(&field_types, false);
+
+                constructor_llvm_type
+            })
+            .collect();
+
+        let largest_constructor_llvm_type = constructor_llvm_types
+            .iter()
+            .map(|constructor_llvm_type| {
+                let field_count = constructor_llvm_type.get_field_types().len();
+                (field_count, constructor_llvm_type)
+            })
+            .max_by(|(field_count_1, _), (field_count_2, _)| {
+                usize::cmp(field_count_1, field_count_2)
+            })
+            .and_then(|(_, constructor)| Some(constructor));
+        if let Some(constructor_type) = largest_constructor_llvm_type {
+            inductive_llvm_struct_type.set_body(&constructor_type.get_field_types(), false);
+        }
+
+        let inductive_llvm_constructors = constructor_llvm_types
+            .into_iter()
+            .enumerate()
+            .map(|(i, constructor_llvm_type)| {
+                environment::global::Constructor::build(
+                    inductive.constructors.get(i).unwrap().name.clone(),
+                    constructor_llvm_type.ptr_type(AddressSpace::Generic),
+                )
+            })
+            .collect();
+
+        self.global
+            .add_constructors(&inductive.name, inductive_llvm_constructors);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,5 +349,35 @@ mod tests {
         assert_eq!(successor_field_types, nat_field_types);
         assert_eq!(successor_field_types[0], nat_llvm_ptr);
         assert_eq!(successor_field_types[1], nat_llvm_ptr);
+    }
+
+    #[test]
+    fn nat_identity() {
+        let identity_function = examples::nat_identity();
+
+        let inkwell_context = InkwellContext::create();
+        let mut context = Context::build(&inkwell_context);
+        context.codegen_term(&identity_function);
+
+        let llvm_identity_function = context.module.get_first_function().unwrap();
+
+        let llvm_first_parameter = llvm_identity_function.get_first_param().unwrap();
+        let llvm_first_parameter_pointer = llvm_first_parameter.into_pointer_value();
+        assert_eq!(
+            llvm_first_parameter_pointer
+                .get_type()
+                .get_element_type()
+                .into_int_type(),
+            context.context.i8_type()
+        );
+
+        let llvm_basic_blocks = llvm_identity_function.get_basic_blocks();
+        assert_eq!(llvm_basic_blocks.len(), 1);
+
+        let llvm_first_basic_block = llvm_basic_blocks.get(0).unwrap();
+        assert_eq!(
+            llvm_first_basic_block.get_first_instruction(),
+            llvm_first_basic_block.get_last_instruction()
+        );
     }
 }
