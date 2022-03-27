@@ -59,7 +59,7 @@ pub mod ir {
         },
         Application {
             function: Box<Term>,
-            arguments: Vec<Term>,
+            argument: Box<Term>,
         },
         Constant(String, UniverseInstance),
         Inductive(String, UniverseInstance),
@@ -285,13 +285,13 @@ pub mod examples {
                                             1,
                                             UniverseInstance::empty(),
                                         )),
-                                        arguments: vec![Term::Application {
-                                            function: Box::new(Term::DeBruijnIndex(3)),
-                                            arguments: vec![
-                                                Term::DeBruijnIndex(0),
-                                                Term::DeBruijnIndex(1),
-                                            ],
-                                        }],
+                                        argument: Box::new(Term::Application {
+                                            function: Box::new(Term::Application {
+                                                function: Box::new(Term::DeBruijnIndex(3)),
+                                                argument: Box::new(Term::DeBruijnIndex(0)),
+                                            }),
+                                            argument: Box::new(Term::DeBruijnIndex(1)),
+                                        }),
                                     }),
                                 },
                             ),
@@ -336,11 +336,11 @@ pub mod examples {
                     1,
                     UniverseInstance::empty(),
                 )),
-                arguments: vec![Term::Constructor(
+                argument: Box::new(Term::Constructor(
                     natural.clone(),
                     0,
                     UniverseInstance::empty(),
-                )],
+                )),
             }),
         }
     }

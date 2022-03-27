@@ -179,12 +179,43 @@ pub mod check {
                         return_type: Box::new(body_type),
                     }
                 }
+                Term::Application { function, argument } => {
+                    let function_type = self.type_check_term(function);
+                    let argument_type = self.type_check_term(argument);
+
+                    // This should be a cumulativity relation, not a direct match. (i.e. it should be <= not ==)
+                    match function_type {
+                        Term::DependentProduct {
+                            parameter_name,
+                            parameter_type,
+                            return_type,
+                        } => {
+                            assert_eq!(argument_type, *parameter_type);
+                            (*return_type).clone()
+                        }
+                        _ => todo!("{:#?}", function_type),
+                    }
+                }
                 Term::Inductive(identifier, _) => {
                     let _inductive = self.global.lookup_inductive(identifier);
 
                     // TODO: handle universes
                     term.clone()
                 }
+                Term::Constructor(inductive_name, branches_index, universe_instance) => {
+                    let inductive = self.global.lookup_inductive(inductive_name);
+
+                    let constructor = inductive.constructors.get(*branches_index).unwrap();
+
+                    constructor.typ.clone()
+                }
+                Term::Match {
+                    inductive_name,
+                    parameter_count,
+                    type_info,
+                    discriminee,
+                    branches,
+                } => todo!("Match"),
                 Term::Fixpoint {
                     fixpoint_name,
                     fixpoint_type,
@@ -199,29 +230,6 @@ pub mod check {
                     self.local.pop_declaration();
 
                     (**fixpoint_type).clone()
-                }
-                Term::Match {
-                    inductive_name,
-                    parameter_count,
-                    type_info,
-                    discriminee,
-                    branches,
-                } => todo!("Match"),
-                Term::Application {
-                    function,
-                    arguments,
-                } => {
-                    let function_type = self.type_check_term(function);
-
-                    if let Term::Application { .. } = **function {
-                        panic!()
-                    }
-
-                    assert_ne!(arguments.len(), 0);
-
-                    arguments.iter().for_each(|argument| todo!());
-
-                    todo!()
                 }
                 _ => todo!("{:#?}", term),
             }
