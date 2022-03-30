@@ -202,9 +202,9 @@ pub mod examples {
     ///     S(_ : Nat) -> Nat,
     /// }
     pub fn nat() -> Inductive {
-        let natural = "Natural".to_string();
-        let zero = "Zero".to_string();
-        let successor = "Successor".to_string();
+        let natural = "Nat".to_string();
+        let zero = "O".to_string();
+        let successor = "S".to_string();
 
         Inductive {
             name: natural.clone(),
@@ -303,6 +303,9 @@ pub mod examples {
         }
     }
 
+    /// func identity(a : Nat) -> Nat {
+    ///     a
+    /// }
     pub fn nat_identity() -> Term {
         let nat = nat();
 
@@ -320,9 +323,11 @@ pub mod examples {
         }
     }
 
+    /// func (_ : Nat) {
+    ///     Nat.S(Nat.O)
+    /// }
     pub fn nat_one() -> Term {
         let nat = nat();
-        let natural = "Natural".to_string();
 
         let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
         let a = Name::Named("a".to_string());
@@ -332,12 +337,12 @@ pub mod examples {
             parameter_type: nat_term.clone(),
             body: Box::new(Term::Application {
                 function: Box::new(Term::Constructor(
-                    natural.clone(),
+                    nat.name.clone(),
                     1,
                     UniverseInstance::empty(),
                 )),
                 argument: Box::new(Term::Constructor(
-                    natural.clone(),
+                    nat.name.clone(),
                     0,
                     UniverseInstance::empty(),
                 )),

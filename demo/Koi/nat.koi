@@ -9,3 +9,9 @@ func rec add(a b : Nat) -> Nat {
     Nat.S(x : Nat) => Nat.S(add(x, b))
   }
 }
+
+// 0 + n = n
+func plus_0(n : Nat, H : n = m) -> add(0, n) = n { 
+  // Involves equality
+  ... 
+}

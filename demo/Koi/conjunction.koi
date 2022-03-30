@@ -1,0 +1,26 @@
+enum And(A, B : Prop) : Prop {
+  And(_ : A, _ : B) -> And(A, B)
+}
+
+enum Or(A, B : Prop) : Prop {
+  ATrue(_ : A) -> Or(A, B),
+  BTrue(_ : B) -> Or(A, B),
+}
+
+// p and q -> p
+func and_projection_coq(P Q : Prop, hypothesis: And(P, Q)) -> P {
+  match hypothesis -> P {
+    And.And(p : P, q : Q) => {
+      func (HP : P, _ : Q) -> P { 
+        HP 
+      }(p, q)
+    }
+  }
+}
+
+func and_projection_natural(P Q : Prop, hypothesis: And(P, Q)) -> P {
+  match hypothesis -> P {
+    And.And(p : P, q : Q) => p
+  }
+}
+
