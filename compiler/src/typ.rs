@@ -151,7 +151,7 @@ pub mod check {
                     self.local
                         .push_declaration(parameter_name.clone(), parameter_type_type.clone());
 
-                    let return_type_type = self.type_check_term(return_type);
+                    self.type_check_term(return_type);
                     let return_type_universe = self.sort_of(&return_type);
 
                     self.local.pop_declaration();
@@ -186,9 +186,9 @@ pub mod check {
                     // This should be a cumulativity relation, not a direct match. (i.e. it should be <= not ==)
                     match function_type {
                         Term::DependentProduct {
-                            parameter_name,
                             parameter_type,
                             return_type,
+                            ..
                         } => {
                             assert_eq!(argument_type, *parameter_type);
                             (*return_type).clone()
@@ -202,20 +202,14 @@ pub mod check {
                     // TODO: handle universes
                     term.clone()
                 }
-                Term::Constructor(inductive_name, branches_index, universe_instance) => {
+                Term::Constructor(inductive_name, branches_index, _universe_instance) => {
                     let inductive = self.global.lookup_inductive(inductive_name);
 
                     let constructor = inductive.constructors.get(*branches_index).unwrap();
 
                     constructor.typ.clone()
                 }
-                Term::Match {
-                    inductive_name,
-                    parameter_count,
-                    type_info,
-                    discriminee,
-                    branches,
-                } => todo!("Match"),
+                Term::Match { .. } => todo!("Match"),
                 Term::Fixpoint {
                     fixpoint_name,
                     fixpoint_type,
@@ -247,9 +241,9 @@ pub mod check {
                     }
                 }
                 Term::DependentProduct {
-                    parameter_name,
                     parameter_type,
                     return_type,
+                    ..
                 } => self
                     .sort_of(parameter_type)
                     .supremum(&self.sort_of(return_type)),

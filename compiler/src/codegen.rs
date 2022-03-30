@@ -245,34 +245,47 @@ impl<'ctx> Context<'ctx> {
                     .as_global_value()
                     .as_pointer_value();
 
-                // TODO: Build the `captures` struct.
-                // TODO: Get the indexes of all free variables in the lambda and put them in `llvm_captures_struct`
-                let llvm_captures_struct = self.context.const_struct(&[], false);
+                // TODO: Build the `captures` struct. Get the indexes of all free variables in the lambda
+                // and put them in `llvm_captures_struct`.
+                let llvm_captures_struct_type = self.context.struct_type(&[], false);
                 let llvm_captures_struct_ptr = self
                     .builder
-                    .build_malloc(llvm_captures_struct.get_type(), "captures_struct_pointer")
+                    .build_malloc(llvm_captures_struct_type, "captures_struct_pointer")
                     .unwrap();
-                self.builder
-                    .build_store(llvm_captures_struct_ptr, llvm_captures_struct);
+                // Store into struct fields
 
                 // Build the struct that represents this lambda.
                 // struct Lambda {
                 //   function* lambda,
                 //   struct* captures,
                 // }
-                let llvm_lambda_struct = self.context.const_struct(
-                    &[
-                        // llvm_lambda_function_ptr.into(),
-                        // llvm_captures_struct_ptr.into(),
-                    ],
-                    false,
-                );
                 let llvm_lambda_struct_ptr = self
                     .builder
-                    .build_malloc(llvm_lambda_struct.get_type(), "lambda_struct_pointer")
+                    .build_malloc(
+                        self.context.struct_type(
+                            &[
+                                llvm_lambda_function_ptr.get_type().into(),
+                                llvm_captures_struct_ptr.get_type().into(),
+                            ],
+                            false,
+                        ),
+                        "lambda_struct_pointer",
+                    )
+                    .unwrap();
+                // Store `lambda`
+                let llvm_lambda_function_field_ptr = self
+                    .builder
+                    .build_struct_gep(llvm_lambda_struct_ptr, 0, "lambda_function_pointer")
                     .unwrap();
                 self.builder
-                    .build_store(llvm_lambda_struct_ptr, llvm_lambda_struct);
+                    .build_store(llvm_lambda_function_field_ptr, llvm_lambda_function_ptr);
+                // Store `captures`
+                let llvm_captures_field_ptr = self
+                    .builder
+                    .build_struct_gep(llvm_lambda_struct_ptr, 1, "lambda_function_pointer")
+                    .unwrap();
+                self.builder
+                    .build_store(llvm_captures_field_ptr, llvm_captures_struct_ptr);
 
                 // Return a pointer to the struct that represents this lambda.
                 llvm_lambda_struct_ptr
@@ -307,7 +320,11 @@ impl<'ctx> Context<'ctx> {
                     .unwrap_left()
                     .into_pointer_value()
             }
-            _ => todo!("{:#?}", term),
+            Term::Constructor(inductive_name, branch_index, _) => {
+                todo!()
+            }
+            Term::Sort(_) | Term::DependentProduct { .. } => unreachable!(),
+            _ => todo!("{:#?}", term)
         }
     }
 
@@ -469,35 +486,10 @@ mod tests {
         let mut context = Context::build(&inkwell_context);
         context.codegen_term(&identity_function);
 
-        let llvm_identity_function = context.module.get_last_function().unwrap();
-
-        assert_eq!(llvm_identity_function.get_params().len(), 2);
-        llvm_identity_function
-            .get_params()
-            .iter()
-            .for_each(|parameter| {
-                let parameter_pointer = parameter.into_pointer_value();
-                assert_eq!(
-                    parameter_pointer
-                        .get_type()
-                        .get_element_type()
-                        .into_int_type(),
-                    context.context.i8_type()
-                );
-            });
-
-        let llvm_basic_blocks = llvm_identity_function.get_basic_blocks();
-        assert_eq!(llvm_basic_blocks.len(), 1);
-
-        let llvm_first_basic_block = llvm_basic_blocks.get(0).unwrap();
-        assert_eq!(
-            llvm_first_basic_block.get_first_instruction(),
-            llvm_first_basic_block.get_last_instruction()
-        );
+        println!("{}", context.module.print_to_string().to_string());
     }
 
     #[test]
-    #[should_panic] // TODO remove this`
     fn nat_one() {
         let nat_one = examples::nat_one();
 

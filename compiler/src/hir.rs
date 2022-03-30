@@ -330,7 +330,6 @@ pub mod examples {
         let nat = nat();
 
         let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
-        let a = Name::Named("a".to_string());
 
         Term::Lambda {
             parameter_name: Name::Anonymous,
