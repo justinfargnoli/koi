@@ -1,11 +1,10 @@
 use crate::hir::ir::{Declaration, Inductive, Term, HIR};
 use environment::local;
 use inkwell::{
-    basic_block::BasicBlock,
     builder::Builder,
     context::Context as InkwellContext,
     module::Module,
-    types::{BasicType, BasicTypeEnum, FunctionType, PointerType, StructType},
+    types::{BasicType, BasicTypeEnum, PointerType, StructType},
     values::{CallableValue, FunctionValue, InstructionOpcode, PointerValue},
     AddressSpace,
 };
@@ -61,18 +60,6 @@ mod environment {
                 Environment {
                     declarations: Vec::new(),
                 }
-            }
-
-            pub fn lookup_constructor(
-                &self,
-                inductive_name: &str,
-                constructor_index: usize,
-            ) -> &Constructor<'ctx> {
-                println!("{:#?} | {} | {}", self, inductive_name, constructor_index);
-                self.lookup_inductive(inductive_name)
-                    .constructors
-                    .get(constructor_index)
-                    .unwrap()
             }
 
             pub fn lookup_inductive_llvm_type(&self, name: &str) -> PointerType<'ctx> {
@@ -227,7 +214,6 @@ impl<'ctx> Context<'ctx> {
                 // TODO: Push the captured variables.
                 local.push(
                     llvm_function
-                        .function_value
                         .get_first_param()
                         .unwrap()
                         .into_pointer_value(),
@@ -242,15 +228,12 @@ impl<'ctx> Context<'ctx> {
                 // Return the result of the body.
                 self.builder.build_return(Some(&return_value));
 
-                llvm_function.function_value.verify(true);
+                llvm_function.verify(true);
 
                 // Set the builders back to the position it was at before codegening this lambda.
                 self.builder.position_at_end(llvm_previous_basic_block);
 
-                let llvm_lambda_function_ptr = llvm_function
-                    .function_value
-                    .as_global_value()
-                    .as_pointer_value();
+                let llvm_lambda_function_ptr = llvm_function.as_global_value().as_pointer_value();
 
                 // TODO: Build the `captures` struct. Get the indexes of all free variables in the lambda
                 // and put them in `llvm_captures_struct`.
@@ -339,7 +322,7 @@ impl<'ctx> Context<'ctx> {
         &self,
         return_type: &dyn BasicType<'ctx>,
         name: &str,
-    ) -> CurriedLLVMFunction<'ctx> {
+    ) -> FunctionValue<'ctx> {
         // Create the function for this constructor.
         let llvm_function_type = return_type.ptr_type(AddressSpace::Generic).fn_type(
             &[
@@ -356,11 +339,7 @@ impl<'ctx> Context<'ctx> {
         self.builder
             .position_at_end(llvm_function_entry_basic_block);
 
-        CurriedLLVMFunction {
-            function_type: llvm_function_type,
-            function_value: llvm_function_value,
-            entry_basic_block: llvm_function_entry_basic_block,
-        }
+        llvm_function_value
     }
 
     // Codegen llvm function for each constructor.
@@ -409,7 +388,6 @@ impl<'ctx> Context<'ctx> {
                 let llvm_capture_field_pointer = self.builder.build_cast(
                     InstructionOpcode::BitCast,
                     llvm_function
-                        .function_value
                         .get_first_param()
                         .unwrap()
                         .into_pointer_value(),
@@ -425,11 +403,7 @@ impl<'ctx> Context<'ctx> {
                 let llvm_capture_field_i = self
                     .builder
                     .build_struct_gep(
-                        llvm_function
-                            .function_value
-                            .get_last_param()
-                            .unwrap()
-                            .into_pointer_value(),
+                        llvm_function.get_last_param().unwrap().into_pointer_value(),
                         (i - 1) as u32, // Subtract one to account for the tag that we've added to the struct.
                         &format!("environment_field_{}", i),
                     )
@@ -454,10 +428,7 @@ impl<'ctx> Context<'ctx> {
             .build_return(Some(&llvm_constructor_struct_pointer));
 
         // Return a pointer to this constructor.
-        llvm_function
-            .function_value
-            .as_global_value()
-            .as_pointer_value()
+        llvm_function.as_global_value().as_pointer_value()
     }
 
     pub fn constructor_llvm_name(inductive_name: &str, constructor_name: &str) -> String {
@@ -565,12 +536,6 @@ impl<'ctx> Context<'ctx> {
             inductive_llvm_struct_type.set_body(&constructor_type.get_field_types(), false);
         }
     }
-}
-
-struct CurriedLLVMFunction<'ctx> {
-    function_type: FunctionType<'ctx>,
-    function_value: FunctionValue<'ctx>,
-    entry_basic_block: BasicBlock<'ctx>,
 }
 
 #[cfg(test)]

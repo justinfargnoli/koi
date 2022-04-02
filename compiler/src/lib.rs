@@ -1,6 +1,5 @@
 pub mod codegen;
 pub mod hir;
-pub mod parse;
 pub mod typ;
 
 // TODO: termination checking
