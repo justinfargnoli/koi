@@ -1,16 +1,9 @@
 pub mod ir {
     use universe::{Universe, UniverseInstance};
 
+    #[derive(Default)]
     pub struct HIR {
         pub declarations: Vec<Declaration>,
-    }
-
-    impl HIR {
-        pub fn new() -> HIR {
-            HIR {
-                declarations: Vec::new(),
-            }
-        }
     }
 
     pub enum Declaration {
@@ -143,10 +136,7 @@ pub mod ir {
             }
 
             pub fn is_prop(&self) -> bool {
-                match self {
-                    Expression(Level::Prop, _) => true,
-                    _ => false,
-                }
+                matches!(self, Expression(Level::Prop, _))
             }
 
             pub fn type_1() -> Expression {
@@ -212,21 +202,18 @@ pub mod examples {
             arity: Term::Sort(Universe::build_one(Expression::set())),
             constructors: vec![
                 Constructor {
-                    name: zero.clone(),
+                    name: zero,
                     typ: Term::Inductive(natural.clone(), UniverseInstance::empty()),
                 },
                 Constructor {
-                    name: successor.clone(),
+                    name: successor,
                     typ: Term::DependentProduct {
                         parameter_name: Name::Anonymous,
                         parameter_type: Box::new(Term::Inductive(
                             natural.clone(),
                             UniverseInstance::empty(),
                         )),
-                        return_type: Box::new(Term::Inductive(
-                            natural.clone(),
-                            UniverseInstance::empty(),
-                        )),
+                        return_type: Box::new(Term::Inductive(natural, UniverseInstance::empty())),
                     },
                 },
             ],
@@ -261,13 +248,13 @@ pub mod examples {
                 parameter_name: a.clone(),
                 parameter_type: nat_term.clone(),
                 body: Box::new(Term::Lambda {
-                    parameter_name: b.clone(),
+                    parameter_name: b,
                     parameter_type: nat_term.clone(),
                     body: Box::new(Term::Match {
                         inductive_name: nat.name.clone(),
                         parameter_count: 0,
                         type_info: Box::new(Term::Lambda {
-                            parameter_name: a.clone(),
+                            parameter_name: a,
                             parameter_type: nat_term.clone(),
                             body: nat_term.clone(),
                         }),
@@ -278,10 +265,10 @@ pub mod examples {
                                 1,
                                 Term::Lambda {
                                     parameter_name: Name::Named("x".to_string()),
-                                    parameter_type: nat_term.clone(),
+                                    parameter_type: nat_term,
                                     body: Box::new(Term::Application {
                                         function: Box::new(Term::Constructor(
-                                            nat.name.clone(),
+                                            nat.name,
                                             1,
                                             UniverseInstance::empty(),
                                         )),
@@ -309,15 +296,15 @@ pub mod examples {
     pub fn nat_identity() -> Term {
         let nat = nat();
 
-        let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
+        let nat_term = Box::new(Term::Inductive(nat.name, UniverseInstance::empty()));
         let a = Name::Named("a".to_string());
 
         Term::Lambda {
             parameter_name: Name::Named("identity".to_string()),
             parameter_type: Box::new(Term::DependentProduct {
-                parameter_name: a.clone(),
+                parameter_name: a,
                 parameter_type: nat_term.clone(),
-                return_type: nat_term.clone(),
+                return_type: nat_term,
             }),
             body: Box::new(Term::DeBruijnIndex(0)),
         }
@@ -333,18 +320,14 @@ pub mod examples {
 
         Term::Lambda {
             parameter_name: Name::Anonymous,
-            parameter_type: nat_term.clone(),
+            parameter_type: nat_term,
             body: Box::new(Term::Application {
                 function: Box::new(Term::Constructor(
                     nat.name.clone(),
                     1,
                     UniverseInstance::empty(),
                 )),
-                argument: Box::new(Term::Constructor(
-                    nat.name.clone(),
-                    0,
-                    UniverseInstance::empty(),
-                )),
+                argument: Box::new(Term::Constructor(nat.name, 0, UniverseInstance::empty())),
             }),
         }
     }

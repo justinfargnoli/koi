@@ -165,15 +165,15 @@ impl<'ctx> Context<'ctx> {
     pub fn codegen_hir(&mut self, hir: &HIR) {
         for declaration in &hir.declarations {
             match declaration {
-                Declaration::Constant(term) => self.codegen_term(&term),
-                Declaration::Inductive(inductive) => self.codegen_inductive(&inductive),
+                Declaration::Constant(term) => self.codegen_term(term),
+                Declaration::Inductive(inductive) => self.codegen_inductive(inductive),
             }
         }
         self.module.verify().unwrap();
     }
 
     pub fn codegen_term(&self, term: &Term) {
-        if let None = self.module.get_first_function() {
+        if self.module.get_first_function().is_none() {
             // Declare the main function
             let llvm_main_function = self.module.add_function(
                 "main",
@@ -201,7 +201,7 @@ impl<'ctx> Context<'ctx> {
         local: &mut local::Environment<'ctx>,
     ) -> PointerValue<'ctx> {
         match term {
-            Term::DeBruijnIndex(debruijn_index) => local.lookup(*debruijn_index).clone(),
+            Term::DeBruijnIndex(debruijn_index) => *local.lookup(*debruijn_index),
             Term::Lambda { body, .. } => {
                 // Get the basic block that we were previously inserting instructions into. This is
                 // used later to build the lambda struct.
@@ -446,11 +446,11 @@ impl<'ctx> Context<'ctx> {
                 return_type,
                 ..
             } => {
-                self.codegen_constructor_type_helper(&parameter_type, accumulator);
-                self.codegen_constructor_type_helper(&return_type, accumulator);
+                self.codegen_constructor_type_helper(parameter_type, accumulator);
+                self.codegen_constructor_type_helper(return_type, accumulator);
             }
             Term::Inductive(name, _) => {
-                accumulator.push(self.global.lookup_inductive_llvm_type(&name).into());
+                accumulator.push(self.global.lookup_inductive_llvm_type(name).into());
             }
             _ => panic!(),
         }
@@ -531,7 +531,7 @@ impl<'ctx> Context<'ctx> {
             .max_by(|(field_count_1, _), (field_count_2, _)| {
                 usize::cmp(field_count_1, field_count_2)
             })
-            .and_then(|(_, constructor)| Some(constructor));
+            .map(|(_, constructor)| constructor);
         if let Some(constructor_type) = largest_constructor_llvm_type {
             inductive_llvm_struct_type.set_body(&constructor_type.get_field_types(), false);
         }

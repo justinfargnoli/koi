@@ -9,18 +9,13 @@ pub mod check {
         pub mod global {
             use crate::hir::ir::{Inductive, Term};
 
+            #[derive(Default)]
             pub struct Environment {
                 declarations: Vec<Declaration>,
                 // TODO: `universe_graph: uGraph.t`
             }
 
             impl Environment {
-                pub fn new() -> Environment {
-                    Environment {
-                        declarations: Vec::new(),
-                    }
-                }
-
                 pub fn lookup_inductive(&self, name: &str) -> Inductive {
                     for declaration in &self.declarations {
                         if let Declaration::Inductive(inductive_name, inductive) = declaration {
@@ -53,17 +48,12 @@ pub mod check {
         pub mod local {
             use crate::hir::ir::{Name, Term};
 
+            #[derive(Default)]
             pub struct Environment {
                 pub declarations: Vec<Declaration>,
             }
 
             impl Environment {
-                pub fn new() -> Environment {
-                    Environment {
-                        declarations: Vec::new(),
-                    }
-                }
-
                 pub fn push_declaration(&mut self, name: Name, typ: Term) {
                     self.declarations.push(Declaration {
                         name,
@@ -86,21 +76,15 @@ pub mod check {
         }
     }
 
+    #[derive(Default)]
     pub struct Context {
         global: global::Environment,
         local: local::Environment,
     }
 
     impl Context {
-        pub fn new() -> Context {
-            Context {
-                global: global::Environment::new(),
-                local: local::Environment::new(),
-            }
-        }
-
         pub fn type_check_hir(hir: &HIR) {
-            let mut context = Context::new();
+            let mut context = Context::default();
             for declaration in hir.declarations.iter() {
                 match declaration {
                     Declaration::Constant(term) => {
@@ -113,7 +97,7 @@ pub mod check {
         }
 
         pub fn type_check_fresh_term(term: &Term) -> Term {
-            Context::new().type_check_term(term)
+            Context::default().type_check_term(term)
         }
 
         // assert when type checking fails
@@ -132,7 +116,7 @@ pub mod check {
                 Term::Sort(universe) => {
                     assert_eq!(universe.length(), 1);
                     let universe_expression = universe.first();
-                    assert_eq!(universe_expression.1, false);
+                    assert!(!universe_expression.1);
                     match universe_expression.level() {
                         Level::Prop | Level::Set => {
                             Term::Sort(Universe::build_one(Expression::type_1()))
@@ -146,13 +130,13 @@ pub mod check {
                     return_type,
                 } => {
                     let parameter_type_type = self.type_check_term(parameter_type);
-                    let parameter_type_universe = self.sort_of(&parameter_type);
+                    let parameter_type_universe = self.sort_of(parameter_type);
 
                     self.local
-                        .push_declaration(parameter_name.clone(), parameter_type_type.clone());
+                        .push_declaration(parameter_name.clone(), parameter_type_type);
 
                     self.type_check_term(return_type);
-                    let return_type_universe = self.sort_of(&return_type);
+                    let return_type_universe = self.sort_of(return_type);
 
                     self.local.pop_declaration();
 
@@ -252,7 +236,7 @@ pub mod check {
         }
 
         pub fn type_check_fresh_inductive(inductive: &Inductive) {
-            Context::new().type_check_inductive(inductive);
+            Context::default().type_check_inductive(inductive);
         }
 
         fn well_formed_arity(arity: &Term) {
