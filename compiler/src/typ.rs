@@ -313,32 +313,22 @@ pub mod check {
 
         #[test]
         fn nat_add() {
-            Context::type_check_hir(&HIR {
-                declarations: vec![
-                    Declaration::Inductive(examples::nat()),
-                    Declaration::Constant(examples::nat_add()),
-                ],
-            });
+            Context::type_check_hir(&examples::nat_add());
         }
 
         #[test]
         fn nat_identity() {
-            Context::type_check_hir(&HIR {
-                declarations: vec![
-                    Declaration::Inductive(examples::nat()),
-                    Declaration::Constant(examples::nat_identity()),
-                ],
-            });
+            Context::type_check_hir(&examples::nat_identity());
         }
 
         #[test]
         fn nat_one() {
-            Context::type_check_hir(&HIR {
-                declarations: vec![
-                    Declaration::Inductive(examples::nat()),
-                    Declaration::Constant(examples::nat_one()),
-                ],
-            });
+            Context::type_check_hir(&examples::nat_one());
+        }
+
+        #[test]
+        fn nat_zero() {
+            Context::type_check_hir(&examples::nat_zero());
         }
     }
 }

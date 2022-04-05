@@ -5,7 +5,7 @@ use inkwell::{
     context::Context as InkwellContext,
     module::Module,
     types::{BasicType, BasicTypeEnum, PointerType, StructType},
-    values::{CallableValue, FunctionValue, InstructionOpcode, PointerValue},
+    values::{CallableValue, FunctionValue, PointerValue},
     AddressSpace,
 };
 
@@ -162,6 +162,16 @@ impl<'ctx> Context<'ctx> {
         }
     }
 
+    pub fn run_module(&self) {
+        let llvm_interpreter = self.module.create_interpreter_execution_engine().unwrap();
+
+        unsafe {
+            let result = llvm_interpreter
+                .run_function_as_main(self.module.get_function("main").unwrap(), &[]);
+            assert_eq!(result, 0);
+        }
+    }
+
     pub fn codegen_hir(&mut self, hir: &HIR) {
         for declaration in &hir.declarations {
             match declaration {
@@ -173,7 +183,7 @@ impl<'ctx> Context<'ctx> {
     }
 
     pub fn codegen_term(&self, term: &Term) {
-        if self.module.get_first_function().is_none() {
+        if self.module.get_function("main").is_none() {
             // Declare the main function
             let llvm_main_function = self.module.add_function(
                 "main",
@@ -186,13 +196,66 @@ impl<'ctx> Context<'ctx> {
                 .append_basic_block(llvm_main_function, "main_entry");
             self.builder
                 .position_at_end(llvm_main_function_entry_basic_block);
-        }
 
-        self.codegen_term_helper(term, &mut local::Environment::new());
+            self.codegen_term_helper(term, &mut local::Environment::new());
+
+            self.builder.build_return(None);
+        } else {
+            self.codegen_term_helper(term, &mut local::Environment::new());
+        }
     }
 
     fn llvm_pointer_type(&self) -> PointerType<'ctx> {
         self.context.i8_type().ptr_type(AddressSpace::Generic)
+    }
+
+    fn llvm_function_to_lambda_struct(
+        &self,
+        llvm_lambda_function_ptr: PointerValue,
+    ) -> PointerValue<'ctx> {
+        // TODO: Build the `captures` struct. Get the indexes of all free variables in the lambda
+        // and put them in `llvm_captures_struct`.
+        let llvm_captures_struct_type = self.context.struct_type(&[], false);
+        let llvm_captures_struct_ptr = self
+            .builder
+            .build_malloc(llvm_captures_struct_type, "captures_struct_pointer")
+            .unwrap();
+        // Store into struct fields
+
+        // Build the struct that represents this lambda.
+        // struct Lambda {
+        //   function* lambda,
+        //   struct* captures,
+        // }
+        let llvm_lambda_struct_ptr = self
+            .builder
+            .build_malloc(
+                self.context.struct_type(
+                    &[
+                        llvm_lambda_function_ptr.get_type().into(),
+                        llvm_captures_struct_ptr.get_type().into(),
+                    ],
+                    false,
+                ),
+                "lambda_struct_pointer",
+            )
+            .unwrap();
+        // Store `lambda`
+        let llvm_lambda_function_field_ptr = self
+            .builder
+            .build_struct_gep(llvm_lambda_struct_ptr, 0, "lambda_function_pointer")
+            .unwrap();
+        self.builder
+            .build_store(llvm_lambda_function_field_ptr, llvm_lambda_function_ptr);
+        // Store `captures`
+        let llvm_captures_field_ptr = self
+            .builder
+            .build_struct_gep(llvm_lambda_struct_ptr, 1, "lambda_captures_struct_pointer")
+            .unwrap();
+        self.builder
+            .build_store(llvm_captures_field_ptr, llvm_captures_struct_ptr);
+
+        llvm_lambda_struct_ptr
     }
 
     fn codegen_term_helper(
@@ -225,8 +288,14 @@ impl<'ctx> Context<'ctx> {
                 // Reset the local environment.
                 local.pop();
 
+                let casted_return_value = self.builder.build_bitcast(
+                    return_value,
+                    self.llvm_pointer_type(),
+                    "return_i8_pointer",
+                );
+
                 // Return the result of the body.
-                self.builder.build_return(Some(&return_value));
+                self.builder.build_return(Some(&casted_return_value));
 
                 llvm_function.verify(true);
 
@@ -235,66 +304,65 @@ impl<'ctx> Context<'ctx> {
 
                 let llvm_lambda_function_ptr = llvm_function.as_global_value().as_pointer_value();
 
-                // TODO: Build the `captures` struct. Get the indexes of all free variables in the lambda
-                // and put them in `llvm_captures_struct`.
-                let llvm_captures_struct_type = self.context.struct_type(&[], false);
-                let llvm_captures_struct_ptr = self
-                    .builder
-                    .build_malloc(llvm_captures_struct_type, "captures_struct_pointer")
-                    .unwrap();
-                // Store into struct fields
-
-                // Build the struct that represents this lambda.
-                // struct Lambda {
-                //   function* lambda,
-                //   struct* captures,
-                // }
-                let llvm_lambda_struct_ptr = self
-                    .builder
-                    .build_malloc(
-                        self.context.struct_type(
-                            &[
-                                llvm_lambda_function_ptr.get_type().into(),
-                                llvm_captures_struct_ptr.get_type().into(),
-                            ],
-                            false,
-                        ),
-                        "lambda_struct_pointer",
-                    )
-                    .unwrap();
-                // Store `lambda`
-                let llvm_lambda_function_field_ptr = self
-                    .builder
-                    .build_struct_gep(llvm_lambda_struct_ptr, 0, "lambda_function_pointer")
-                    .unwrap();
-                self.builder
-                    .build_store(llvm_lambda_function_field_ptr, llvm_lambda_function_ptr);
-                // Store `captures`
-                let llvm_captures_field_ptr = self
-                    .builder
-                    .build_struct_gep(llvm_lambda_struct_ptr, 1, "lambda_function_pointer")
-                    .unwrap();
-                self.builder
-                    .build_store(llvm_captures_field_ptr, llvm_captures_struct_ptr);
-
                 // Return a pointer to the struct that represents this lambda.
-                llvm_lambda_struct_ptr
+                self.llvm_function_to_lambda_struct(llvm_lambda_function_ptr)
             }
             Term::Application { function, argument } => {
                 let llvm_function_struct_pointer = self.codegen_term_helper(function, local);
-                // Get the pointer to the function.
+
+                // Get the function pointer.
+                let llvm_function_pointer_pointer = self
+                    .builder
+                    .build_struct_gep(
+                        llvm_function_struct_pointer,
+                        0,
+                        "application_function_pointer_pointer",
+                    )
+                    .unwrap();
                 let llvm_function_pointer = self
                     .builder
-                    .build_struct_gep(llvm_function_struct_pointer, 0, "function_pointer")
-                    .unwrap();
+                    .build_load(
+                        llvm_function_pointer_pointer,
+                        "application_function_pointer",
+                    )
+                    .into_pointer_value();
                 // Get the pointer to the captures struct.
+                let llvm_captures_struct_pointer_pointer = self
+                    .builder
+                    .build_struct_gep(
+                        llvm_function_struct_pointer,
+                        1,
+                        "application_captures_struct_pointer_pointer",
+                    )
+                    .unwrap();
                 let llvm_captures_struct_pointer = self
                     .builder
-                    .build_struct_gep(llvm_function_struct_pointer, 1, "captures_struct_pointer")
-                    .unwrap();
+                    .build_load(
+                        llvm_captures_struct_pointer_pointer,
+                        "application_captures_struct_pointer",
+                    )
+                    .into_pointer_value();
 
                 // Get the argument to the function.
                 let llvm_argument_pointer = self.codegen_term_helper(argument, local);
+
+                // Cast the function pointer so that the parameter types reflect the types of the arguments.
+                let llvm_function_pointer = self
+                    .builder
+                    .build_bitcast(
+                        llvm_function_pointer,
+                        self.llvm_pointer_type()
+                            .fn_type(
+                                &[
+                                    llvm_argument_pointer.get_type().into(),
+                                    llvm_captures_struct_pointer.get_type().into(),
+                                ],
+                                false,
+                            )
+                            .ptr_type(AddressSpace::Generic),
+                        "application_function_pointer_cast",
+                    )
+                    .into_pointer_value();
 
                 // Call the function and return the pointer that the function returns.
                 self.builder
@@ -310,9 +378,18 @@ impl<'ctx> Context<'ctx> {
                     .unwrap_left()
                     .into_pointer_value()
             }
-            Term::Constructor(_inductive_name, _branch_index, _) => {
-                todo!()
+            Term::Constructor(inductive_name, branch_index, _) => {
+                let llvm_constructor_function_pointer = self
+                    .global
+                    .lookup_inductive(inductive_name)
+                    .constructors
+                    .get(*branch_index)
+                    .unwrap()
+                    .llvm_function;
+
+                self.llvm_function_to_lambda_struct(llvm_constructor_function_pointer)
             }
+            Term::Fixpoint { body, .. } => self.codegen_term_helper(body, local),
             Term::Sort(_) | Term::DependentProduct { .. } => unreachable!(),
             _ => todo!("{:#?}", term),
         }
@@ -324,7 +401,7 @@ impl<'ctx> Context<'ctx> {
         name: &str,
     ) -> FunctionValue<'ctx> {
         // Create the function for this constructor.
-        let llvm_function_type = return_type.ptr_type(AddressSpace::Generic).fn_type(
+        let llvm_function_type = return_type.fn_type(
             &[
                 self.llvm_pointer_type().into(),
                 self.llvm_pointer_type().into(),
@@ -350,8 +427,10 @@ impl<'ctx> Context<'ctx> {
         constructor_llvm_name: &str,
         constructor_llvm_struct_type: StructType<'ctx>,
     ) -> PointerValue<'ctx> {
-        let llvm_function = self
-            .initialize_curried_llvm_function(&constructor_llvm_struct_type, constructor_llvm_name);
+        let llvm_function = self.initialize_curried_llvm_function(
+            &constructor_llvm_struct_type.ptr_type(AddressSpace::Generic),
+            constructor_llvm_name,
+        );
 
         // Allocate memory for the constructor's struct on the heap.
         let llvm_constructor_struct_pointer = self
@@ -385,15 +464,14 @@ impl<'ctx> Context<'ctx> {
 
             if i == (constructor_llvm_struct_type.get_field_types().len() - 1) {
                 // Cast the type of the pointer to the type of the field.
-                let llvm_capture_field_pointer = self.builder.build_cast(
-                    InstructionOpcode::BitCast,
+                let llvm_capture_field_pointer = self.builder.build_bitcast(
                     llvm_function
                         .get_first_param()
                         .unwrap()
                         .into_pointer_value(),
                     BasicTypeEnum::try_from(llvm_constructor_field.get_type().get_element_type())
                         .unwrap(),
-                    "pointer_cast",
+                    "parameter_pointer_cast",
                 );
 
                 self.builder
@@ -410,12 +488,11 @@ impl<'ctx> Context<'ctx> {
                     .unwrap();
 
                 // Cast the type of the pointer to the type of the field.
-                let llvm_capture_field_pointer = self.builder.build_cast(
-                    InstructionOpcode::BitCast,
+                let llvm_capture_field_pointer = self.builder.build_bitcast(
                     llvm_capture_field_i,
                     BasicTypeEnum::try_from(llvm_constructor_field.get_type().get_element_type())
                         .unwrap(),
-                    "pointer_cast",
+                    "capture_field_pointer_cast",
                 );
 
                 self.builder
@@ -426,6 +503,8 @@ impl<'ctx> Context<'ctx> {
         // Return the struct that holds the data for this constructor.
         self.builder
             .build_return(Some(&llvm_constructor_struct_pointer));
+
+        llvm_function.verify(false);
 
         // Return a pointer to this constructor.
         llvm_function.as_global_value().as_pointer_value()
@@ -545,6 +624,23 @@ mod tests {
     use super::*;
     use crate::hir::examples;
 
+    fn test_hir(hir: &HIR) {
+        let inkwell_context = InkwellContext::create();
+        let mut context = Context::build(&inkwell_context);
+
+        context.codegen_hir(&hir);
+        context.run_module();
+    }
+
+    #[test]
+    fn unit_type() {
+        let unit = examples::unit();
+
+        let inkwell_context = InkwellContext::create();
+        let mut context = Context::build(&inkwell_context);
+        context.codegen_inductive(&unit);
+    }
+
     #[test]
     fn nat_type() {
         let inductive_nat = &examples::nat();
@@ -591,27 +687,25 @@ mod tests {
                 .ptr_type(AddressSpace::Generic)
                 .as_basic_type_enum()
         );
+    }
 
-        println!("{}", context.module.print_to_string().to_string());
+    #[test]
+    fn nat_add() {
+        test_hir(&examples::nat_add());
     }
 
     #[test]
     fn nat_identity() {
-        let identity_function = examples::nat_identity();
+        test_hir(&examples::nat_identity());
+    }
 
-        let inkwell_context = InkwellContext::create();
-        let context = Context::build(&inkwell_context);
-        context.codegen_term(&identity_function);
-
-        println!("{}", context.module.print_to_string().to_string());
+    #[test]
+    fn nat_zero() {
+        test_hir(&examples::nat_zero());
     }
 
     #[test]
     fn nat_one() {
-        let nat_one = examples::nat_one();
-
-        let inkwell_context = InkwellContext::create();
-        let context = Context::build(&inkwell_context);
-        context.codegen_term(&nat_one);
+        test_hir(&examples::nat_one());
     }
 }

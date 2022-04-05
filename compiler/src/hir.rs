@@ -226,14 +226,14 @@ pub mod examples {
     ///       Nat.S(x : Nat) => Nat.S(add(x, b))
     ///     }
     /// }
-    pub fn nat_add() -> Term {
+    pub fn nat_add() -> HIR {
         let nat = nat();
 
         let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
         let a = Name::Named("a".to_string());
         let b = Name::Named("b".to_string());
 
-        Term::Fixpoint {
+        let add = Term::Fixpoint {
             fixpoint_name: Name::Named("add".to_string()),
             fixpoint_type: Box::new(Term::DependentProduct {
                 parameter_name: a.clone(),
@@ -268,7 +268,7 @@ pub mod examples {
                                     parameter_type: nat_term,
                                     body: Box::new(Term::Application {
                                         function: Box::new(Term::Constructor(
-                                            nat.name,
+                                            nat.name.clone(),
                                             1,
                                             UniverseInstance::empty(),
                                         )),
@@ -287,19 +287,23 @@ pub mod examples {
                 }),
             }),
             recursive_parameter_index: 0,
+        };
+
+        HIR {
+            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(add)],
         }
     }
 
     /// func identity(a : Nat) -> Nat {
     ///     a
     /// }
-    pub fn nat_identity() -> Term {
+    pub fn nat_identity() -> HIR {
         let nat = nat();
 
-        let nat_term = Box::new(Term::Inductive(nat.name, UniverseInstance::empty()));
+        let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
         let a = Name::Named("a".to_string());
 
-        Term::Lambda {
+        let identity = Term::Lambda {
             parameter_name: Name::Named("identity".to_string()),
             parameter_type: Box::new(Term::DependentProduct {
                 parameter_name: a,
@@ -307,18 +311,45 @@ pub mod examples {
                 return_type: nat_term,
             }),
             body: Box::new(Term::DeBruijnIndex(0)),
+        };
+
+        HIR {
+            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(identity)],
         }
     }
 
     /// func (_ : Nat) {
     ///     Nat.S(Nat.O)
     /// }
-    pub fn nat_one() -> Term {
+    pub fn nat_zero() -> HIR {
         let nat = nat();
 
         let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
 
-        Term::Lambda {
+        let zero = Term::Lambda {
+            parameter_name: Name::Anonymous,
+            parameter_type: nat_term,
+            body: Box::new(Term::Constructor(
+                nat.name.clone(),
+                0,
+                UniverseInstance::empty(),
+            )),
+        };
+
+        HIR {
+            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(zero)],
+        }
+    }
+
+    /// func (_ : Nat) {
+    ///     Nat.S(Nat.O)
+    /// }
+    pub fn nat_one() -> HIR {
+        let nat = nat();
+
+        let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
+
+        let one = Term::Lambda {
             parameter_name: Name::Anonymous,
             parameter_type: nat_term,
             body: Box::new(Term::Application {
@@ -327,8 +358,16 @@ pub mod examples {
                     1,
                     UniverseInstance::empty(),
                 )),
-                argument: Box::new(Term::Constructor(nat.name, 0, UniverseInstance::empty())),
+                argument: Box::new(Term::Constructor(
+                    nat.name.clone(),
+                    0,
+                    UniverseInstance::empty(),
+                )),
             }),
+        };
+
+        HIR {
+            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(one)],
         }
     }
 }
