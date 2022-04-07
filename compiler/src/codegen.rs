@@ -8,8 +8,7 @@ use inkwell::{
     values::{CallableValue, FunctionValue, PointerValue},
     AddressSpace,
 };
-
-use self::environment::global::Constructor;
+use std::{fs, process::Command, thread};
 
 mod environment {
     pub mod local {
@@ -163,13 +162,37 @@ impl<'ctx> Context<'ctx> {
     }
 
     pub fn run_module(&self) {
-        let llvm_interpreter = self.module.create_interpreter_execution_engine().unwrap();
+        let test_directory_name = "tests/codegen";
+        fs::create_dir_all(test_directory_name).unwrap();
 
-        unsafe {
-            let result = llvm_interpreter
-                .run_function_as_main(self.module.get_function("main").unwrap(), &[]);
-            assert_eq!(result, 0);
-        }
+        let file_name = format!(
+            "{}/test_{}",
+            test_directory_name,
+            thread::current().id().as_u64()
+        );
+
+        let llvm_ir_file_name = format!("{}.ll", file_name);
+        let llvm_ir = self.module.print_to_string().to_string();
+
+        fs::write(&llvm_ir_file_name, llvm_ir).unwrap();
+
+        let clang_output = Command::new("clang")
+            .args([
+                llvm_ir_file_name,
+                format!("-o{}", file_name),
+                "-Wno-override-module".to_string(),
+            ])
+            .output()
+            .unwrap();
+        assert!(clang_output.status.success());
+        assert!(clang_output.stdout.is_empty());
+        assert!(clang_output.stderr.is_empty());
+
+        let binary_output = Command::new(format!("./{}", file_name)).output().unwrap();
+        dbg!(binary_output.clone());
+        assert!(binary_output.status.success());
+        assert!(binary_output.stdout.is_empty());
+        assert!(binary_output.stderr.is_empty());
     }
 
     pub fn codegen_hir(&mut self, hir: &HIR) {
@@ -187,7 +210,7 @@ impl<'ctx> Context<'ctx> {
             // Declare the main function
             let llvm_main_function = self.module.add_function(
                 "main",
-                self.context.void_type().fn_type(&[], false),
+                self.context.i32_type().fn_type(&[], false),
                 None,
             );
             // Add a basic block to the function.
@@ -199,7 +222,8 @@ impl<'ctx> Context<'ctx> {
 
             self.codegen_term_helper(term, &mut local::Environment::new());
 
-            self.builder.build_return(None);
+            self.builder
+                .build_return(Some(&self.context.i32_type().const_int(0, false)));
         } else {
             self.codegen_term_helper(term, &mut local::Environment::new());
         }
@@ -391,7 +415,7 @@ impl<'ctx> Context<'ctx> {
             }
             Term::Fixpoint { body, .. } => self.codegen_term_helper(body, local),
             Term::Sort(_) | Term::DependentProduct { .. } => unreachable!(),
-            _ => todo!("{:#?}", term),
+            _ => todo!("Match"),
         }
     }
 
@@ -565,7 +589,7 @@ impl<'ctx> Context<'ctx> {
 
         self.global.add_constructor(
             inductive_name,
-            Constructor {
+            environment::global::Constructor {
                 name: constructor.name.clone(),
                 llvm_struct_type: constructor_llvm_type,
                 llvm_function: self.codegen_constructor_function(
