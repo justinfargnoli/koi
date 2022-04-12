@@ -208,11 +208,9 @@ impl<'ctx> Context<'ctx> {
     pub fn codegen_term(&self, term: &Term) {
         if self.module.get_function("main").is_none() {
             // Declare the main function
-            let llvm_main_function = self.module.add_function(
-                "main",
-                self.context.i32_type().fn_type(&[], false),
-                None,
-            );
+            let llvm_main_function =
+                self.module
+                    .add_function("main", self.context.i32_type().fn_type(&[], false), None);
             // Add a basic block to the function.
             let llvm_main_function_entry_basic_block = self
                 .context
@@ -412,6 +410,9 @@ impl<'ctx> Context<'ctx> {
                     .llvm_function;
 
                 self.llvm_function_to_lambda_struct(llvm_constructor_function_pointer)
+            }
+            Term::Match { .. } => {
+                todo!()
             }
             Term::Fixpoint { body, .. } => self.codegen_term_helper(body, local),
             Term::Sort(_) | Term::DependentProduct { .. } => unreachable!(),
