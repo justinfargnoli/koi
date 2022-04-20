@@ -1,7 +1,7 @@
 pub mod check {
     use crate::hir::ir::{
-        universe::{Expression, Level, Universe},
-        Declaration, Inductive, Term, HIR,
+        universe::{Expression, Level, Universe, UniverseInstance},
+        Declaration, Inductive, Term, HIR, Name,
     };
     use environment::{global, local};
 
@@ -108,7 +108,7 @@ pub mod check {
                     // pass only if the `debruijn_index` is a local declaration
                     self.local
                         .declarations
-                        .get(*debruijn_index)
+                        .get(self.local.declarations.len() - 1 - *debruijn_index)
                         .unwrap()
                         .typ
                         .clone()
@@ -193,7 +193,71 @@ pub mod check {
 
                     constructor.typ.clone()
                 }
-                Term::Match { .. } => todo!("Match"),
+                Term::Match {
+                    inductive_name,
+                    scrutinee,
+                    return_type,
+                    branches,
+                    ..
+                } => {
+                    let inductive = self.global.lookup_inductive(inductive_name.as_str());
+
+                    assert_eq!(
+                        self.type_check_term(scrutinee),
+                        Term::Inductive((*inductive_name).clone(), UniverseInstance::empty())
+                    );
+
+                    self.type_check_term(return_type);
+
+                    branches
+                        .iter()
+                        .map(|branch| &branch.1)
+                        .zip(
+                            inductive
+                                .constructors
+                                .iter()
+                                .map(|constructor| &constructor.typ),
+                        )
+                        .for_each(|(branch, constructor_type)| {
+                            fn add_constructor_fields_to_environment(
+                                local_environment: &mut environment::local::Environment,
+                                constructor_type: &Term,
+                            ) -> usize {
+                                match constructor_type {
+                                    Term::DependentProduct {
+                                        parameter_name,
+                                        parameter_type,
+                                        return_type,
+                                    } => {
+                                        local_environment
+                                            .push_declaration(parameter_name.clone(), (**parameter_type).clone());
+                                        let number_of_declarations_added =
+                                            add_constructor_fields_to_environment(
+                                                local_environment,
+                                                &(**return_type),
+                                            );
+                                        number_of_declarations_added + 1
+                                    }
+                                    Term::Inductive(name, _) => {
+                                        local_environment.push_declaration(Name::Named(name.clone()), constructor_type.clone());
+                                        1
+                                    }
+                                    _ => unreachable!("{:#?}", constructor_type),
+                                }
+                            }
+
+                            let number_of_declarations_added =
+                                add_constructor_fields_to_environment(&mut self.local, &constructor_type);
+
+                            assert_eq!(**return_type, self.type_check_term(&branch));
+
+                            for _ in 0..number_of_declarations_added {
+                                self.local.pop_declaration();
+                            }
+                        });
+
+                    (**return_type).clone()
+                }
                 Term::Fixpoint {
                     fixpoint_name,
                     fixpoint_type,

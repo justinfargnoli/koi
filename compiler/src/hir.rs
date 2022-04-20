@@ -59,9 +59,9 @@ pub mod ir {
         Constructor(String, BranchesCount, UniverseInstance),
         Match {
             inductive_name: String,
-            parameter_count: BranchesCount,
-            type_info: Box<Term>,
-            discriminee: Box<Term>,
+            parameter_count: BranchesCount, // NOTE: likely don't need
+            return_type: Box<Term>,
+            scrutinee: Box<Term>,
             branches: Vec<(BranchesCount, Term)>, // QUESTION: Can `BranchesCount` be removed here and we just use the position in the `Vec`?
         },
         Fixpoint {
@@ -253,32 +253,24 @@ pub mod examples {
                     body: Box::new(Term::Match {
                         inductive_name: nat.name.clone(),
                         parameter_count: 0,
-                        type_info: Box::new(Term::Lambda {
-                            parameter_name: a,
-                            parameter_type: nat_term.clone(),
-                            body: nat_term.clone(),
-                        }),
-                        discriminee: Box::new(Term::DeBruijnIndex(1)),
+                        return_type: nat_term.clone(),
+                        scrutinee: Box::new(Term::DeBruijnIndex(1)),
                         branches: vec![
                             (0, Term::DeBruijnIndex(0)),
                             (
                                 1,
-                                Term::Lambda {
-                                    parameter_name: Name::Named("x".to_string()),
-                                    parameter_type: nat_term,
-                                    body: Box::new(Term::Application {
-                                        function: Box::new(Term::Constructor(
-                                            nat.name.clone(),
-                                            1,
-                                            UniverseInstance::empty(),
-                                        )),
-                                        argument: Box::new(Term::Application {
-                                            function: Box::new(Term::Application {
-                                                function: Box::new(Term::DeBruijnIndex(3)),
-                                                argument: Box::new(Term::DeBruijnIndex(0)),
-                                            }),
-                                            argument: Box::new(Term::DeBruijnIndex(1)),
+                                Term::Application {
+                                    function: Box::new(Term::Constructor(
+                                        nat.name.clone(),
+                                        1,
+                                        UniverseInstance::empty(),
+                                    )),
+                                    argument: Box::new(Term::Application {
+                                        function: Box::new(Term::Application {
+                                            function: Box::new(Term::DeBruijnIndex(3)),
+                                            argument: Box::new(Term::DeBruijnIndex(0)),
                                         }),
+                                        argument: Box::new(Term::DeBruijnIndex(1)),
                                     }),
                                 },
                             ),
