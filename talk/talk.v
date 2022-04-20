@@ -50,7 +50,6 @@ Definition plus_identity_elaborated :
 
 
 
-      
 (* add `a` and `b`*)
 
 (* Definition add (a b : Natural) :=
