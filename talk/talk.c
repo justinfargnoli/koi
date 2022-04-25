@@ -55,37 +55,90 @@ struct Function *natural_add_first_argument(struct Natural *a) {
 struct Natural *natural_add_second_argument(struct Natural *b, 
                             struct Natural_Add_Captures *captures) {
   struct Natural *a = captures->a;
+  struct Natural *result = NULL;
+  switch (a->tag) {
+  case 0:
+    struct Natural_Zero *zero = (struct Natural_Zero *)a;
 
-  struct Natural *result = /* add `a` and `b`*/;
+    result = b;
+    break;
+  case 1:
+    struct Natural_Successor *successor = (struct Natural_Successor *)a;
+    struct Natural *n = successor->successor;
 
+    struct Function *add_function_a = natural_add_first_argument(n);
+    struct Natural *add_result = add_function_a->function(b, add_function_a->captures);
+
+    result = natural_successor(add_result);
+    break;
+  default:
+    assert(false);
+  }
   return result;
 }
 
-struct Natural *natural_add_second_argument_implemented(struct Natural *b, 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// --- add: end of example.
+
+struct Natural *natural_add_second_argument(struct Natural *b, 
                             struct Natural_Add_Captures *captures) {
   struct Natural *a = captures->a;
-  struct Natural *temp_result = NULL;
-
+  struct Natural *result = NULL;
   switch (a->tag) {
-    case 0:
-      struct Natural_Zero *zero = (struct Natural_Zero *) a->pointer;
+  case 0: // a->tag == 0
+    struct Natural_Zero *zero = 
+          (struct Natural_Zero *)a;
+    result = b;
+    break;
+  case 1: // a->tag == 1
+    struct Natural_Successor *successor = 
+          (struct Natural_Successor *)a;
+    struct Natural *n = successor->successor;
 
-      temp_result = b;
-      break;
-    case 1:
-      struct Natural_Successor *successor = (struct Natural_Successor *) a->pointer;
-      struct Natural *n = successor->successor;
+    struct Function *add_function_a = 
+        natural_add_first_argument(n);
 
-      struct Function *add_function_a = natural_add_first_argument(n);
-      struct Natural *add_result = add_function_a->function(b, add_function_a->captures);
+    struct Natural *add_result = 
+        add_function_a->function(
+            b, 
+            add_function_a->captures);
 
-      temp_result = natural_successor(add_result);
-      break;
-    default:
-      assert(false);
+    result = natural_successor(add_result);
+    break;
+  default:
+    assert(false);
   }
+  return result;
+}
 
-  struct Natural *result = temp_result;
+struct Natural *natural_add_second_argument(
+        struct Natural *b, 
+        struct Natural_Add_Captures *captures) {
+  struct Natural *a = captures->a;
+  struct Natural *result = /* add `a` and `b`*/;
   return result;
 }
 

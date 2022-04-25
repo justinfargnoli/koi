@@ -8,22 +8,19 @@ Fixpoint add a b := match a with
         Successor (add n b)
     end.
 
-Theorem plus_identity : forall n m : Natural, 
-  n = m -> (add n n = add m m).
+Theorem plus_identity : forall a b : Natural, 
+  a = b -> (add a a = add b b).
 Proof.
-  intros n m H.
+  intros a b H.
   rewrite -> H.
   reflexivity.
 Qed.
 
-Print plus_identity.
-
 Definition plus_identity_elaborated : 
-  forall n m : Natural, n = m -> add n n = add m m := 
-  
-  fun (n m : Natural) (H : n = m) =>
+  forall a b : Natural, a = b -> add a a = add b b := 
+  fun (a b : Natural) (H : a = b) =>
     eq_ind_r 
-      (fun n0 : Natural => add n0 n0 = add m m) 
+      (fun a0 : Natural => add a0 a0 = add b b) 
       eq_refl H.
 
 
@@ -50,14 +47,45 @@ Definition plus_identity_elaborated :
 
 
 
-(* add `a` and `b`*)
 
-(* Definition add (a b : Natural) :=
+
+
+      
+
+
+
+
+
+
+
+
+(* addition examples *)
+
+(* add `a` and `b`*)
+(* Inductive Natural : Set :=
+  | Zero : Natural
+  | Successor (n : Natural) : Natural.
+
+Fixpoint add (a b : Natural) :=
   match a with
   | Zero => b
-  | Successor (n : Natural) => Successor (add n b).
+  | Successor (n : Natural) => 
+      Successor (add n b).
 
-Compute add Zero Zero. *)
+Fixpoint add :=
+  fun (a : Natural) => 
+    fun (b : Natural) =>
+      match a with
+      | Zero => b
+      | Successor (n : Natural) => 
+          Successor (add n b).
+
+Fixpoint add :=
+  fun (a : Natural) => 
+    fun (b : Natural) =>
+      (* add `a` and `b`*). *)
+
+(* Compute add Zero Zero. *) 
 
 Compute Zero. (* 0 *)
 
@@ -69,34 +97,63 @@ Definition natural_identity (natural : Natural) :=
   natural.
 
 
+(* List *)
 
 Inductive List (T : Set) : Set :=
-| Nil : List
-| Cons (x : T) (l : List T) : List.
+| ListNil : List T
+| ListCons (x : T) (l : List T) : List T.
 
-
-
-Inductive Vector (T : Set) : Natural -> Set :=
-| Nil : Vector T Zero
-| Cons (x : T) 
-    (length : Natural) 
-    (v : Vector T length) 
-    : Vector T (Successor length).
-
-Compute Nil Natural. (* [] *)
-
-Compute Cons Natural (Successor Zero) Zero (Nil Natural). (* [ 1 ] *)
-
-Compute Cons Natural Zero (Successor Zero) 
-  (Cons Natural (Successor Zero) Zero (Nil Natural)). (* [ 0, 1 ] *)
-
-
-Fixpoint add (a b : Natural) : Natural :=
-  match a with
-  | Zero => b
-  | Successor x => Successor (add x b)
+Fixpoint list_append (T : Set) (n m : List T) : List T :=
+  match n with
+  | ListNil _ => m
+  | ListCons _ x l => ListCons T x (list_append T l m)
   end.
 
+
+Compute list_append nat (ListCons nat 0 (ListNil nat)) (ListCons nat 1 (ListNil nat)).
+
+
+(* Vector *)
+
+Inductive Vector (T : Set) : nat -> Set :=
+| Nil : Vector T 0
+| Cons (x : T) (length : nat) (v : Vector T length) 
+    : Vector T (S length).
+
+Compute Nil nat. (* [] *)
+
+Compute Cons nat 0 0 (Nil nat). (* [ 0 ] *)
+
+Compute Cons nat 1 1 (Cons nat 0 0 (Nil nat)). (* [ 0, 1 ] *)
+
+Fixpoint append (T : Set) (n m : nat) 
+      (a : Vector T n) (b : Vector T m) : Vector T (n + m) :=
+  match a with
+  | Nil _ => b
+  | Cons _ x length v => 
+        Cons T x (length + m) (append T length m v b)
+  end.
+
+(* Fixpoint append := 
+  fun (T : Set) =>
+    fun (n : nat) => 
+      fun (m : nat) => 
+        fun (a : Vector T n) => 
+          fun (b : Vector T m) 
+            (* append body *). *)
+
+(* Fixpoint append (T : Set) (n m : nat) 
+        (a : Vector T n) (b : Vector T m) 
+        : Vector T (n + m) :=
+  match a with
+  | Nil _ => b
+  | Cons _ x length v => 
+      Cons T x (length + b) (append T length m v b)
+  end. *)
+
+
+
+(* Logic *)
 
 Inductive True_ : Prop :=
 | TrueConstruct : True_.
@@ -114,3 +171,14 @@ Inductive Or (A B : Prop) : Prop :=
 | OrRight (b : B) : Or A B.
 
 Compute OrLeft True_ False_ TrueConstruct. (* True || False *)
+
+
+(* modus ponens*)
+
+Definition modus_ponens 
+      (P Q : Prop) 
+      (implication : P -> Q) 
+      (p : P) 
+      : Q := 
+      implication p.
+
