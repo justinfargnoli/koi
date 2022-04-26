@@ -1,11 +1,10 @@
 pub mod ir {
-    use universe::{Universe, UniverseInstance};
-
     #[derive(Default)]
     pub struct HIR {
         pub declarations: Vec<Declaration>,
     }
 
+    #[derive(Debug)]
     pub enum Declaration {
         Constant(Term),
         Inductive(Inductive),
@@ -13,15 +12,15 @@ pub mod ir {
 
     pub type Identifier = String;
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub struct Inductive {
         pub name: Identifier,
-        pub parameters: Vec<Term>,
-        pub arity: Term,
+        pub parameter_count: usize,
+        pub typ: Term,
         pub constructors: Vec<Constructor>,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub struct Constructor {
         pub name: Identifier,
         pub typ: Term,
@@ -33,43 +32,42 @@ pub mod ir {
     #[derive(Clone, Debug, PartialEq)]
     pub enum Term {
         DeBruijnIndex(DeBruijnIndex),
-        Sort(Universe),
+        Sort(Sort),
         DependentProduct {
             parameter_name: Name,
             parameter_type: Box<Term>,
             return_type: Box<Term>,
         },
         Lambda {
-            parameter_name: Name,
-            parameter_type: Box<Term>, // The type of the argument to the function
-            body: Box<Term>,
-        },
-        Let {
             name: Name,
-            expression: Box<Term>,
-            expression_type: Box<Term>,
-            then: Box<Term>,
+            parameter_name: Name,
+            parameter_type: Box<Term>,
+            body: Box<Term>,
         },
         Application {
             function: Box<Term>,
             argument: Box<Term>,
         },
-        Constant(String, UniverseInstance),
-        Inductive(String, UniverseInstance),
-        Constructor(String, BranchesCount, UniverseInstance),
+        Constant(String),
+        Inductive(String),
+        Constructor(String, BranchesCount),
         Match {
             inductive_name: String,
-            parameter_count: BranchesCount, // NOTE: likely don't need
             return_type: Box<Term>,
             scrutinee: Box<Term>,
-            branches: Vec<(BranchesCount, Term)>, // QUESTION: Can `BranchesCount` be removed here and we just use the position in the `Vec`?
+            branches: Vec<Term>,
         },
         Fixpoint {
-            fixpoint_name: Name,
-            fixpoint_type: Box<Term>,
+            name: String,
+            expression_type: Box<Term>,
             body: Box<Term>,
-            recursive_parameter_index: usize,
         },
+    }
+
+    impl Term {
+        pub fn is_sort(term: &Term) -> bool {
+            matches!(term, Term::Sort(_))
+        }
     }
 
     #[derive(Clone, Debug, PartialEq)]
@@ -78,111 +76,23 @@ pub mod ir {
         Named(Identifier),
     }
 
-    pub mod universe {
-        use super::DeBruijnIndex;
-
-        #[derive(Clone, Debug, PartialEq)]
-        pub struct Universe(Vec<Expression>); // Vec must be non-empty
-
-        impl Universe {
-            pub fn build_one(expression: Expression) -> Universe {
-                Universe(vec![expression])
-            }
-
-            fn is_prop(&self) -> bool {
-                self.0.iter().all(|expression| expression.is_prop())
-            }
-
-            pub fn sort_of_product(from_sort: &Self, to_sort: &Self) -> Self {
-                if to_sort.is_prop() {
-                    to_sort.clone()
-                } else {
-                    Self::supremum(from_sort, to_sort)
-                }
-            }
-
-            pub fn supremum(&self, other: &Self) -> Self {
-                let mut sup = self.0.clone();
-                sup.append(&mut other.0.clone());
-                Universe(sup)
-            }
-
-            pub fn length(&self) -> usize {
-                self.0.len()
-            }
-
-            pub fn first(&self) -> &Expression {
-                self.0.first().unwrap()
-            }
-
-            pub fn representative_expression(&self) -> &Expression {
-                let mut iterator = self.0.iter();
-                let expression = iterator.next().unwrap();
-                iterator.for_each(|expr| assert_eq!(expr, expression));
-                expression
-            }
-        }
-
-        #[derive(Clone, Debug, PartialEq)]
-        pub struct Expression(Level, pub bool);
-
-        impl Expression {
-            pub fn build(level: Level, plus_one: bool) -> Expression {
-                Expression(level, plus_one)
-            }
-
-            pub fn level(&self) -> &Level {
-                &self.0
-            }
-
-            pub fn is_prop(&self) -> bool {
-                matches!(self, Expression(Level::Prop, _))
-            }
-
-            pub fn type_1() -> Expression {
-                Expression(Level::Set, true)
-            }
-
-            pub fn successor(&self) -> Self {
-                match self {
-                    Expression(level, false) => Expression(level.clone(), true),
-                    _ => panic!(),
-                }
-            }
-
-            pub fn set() -> Expression {
-                Expression(Level::Set, false)
-            }
-        }
-
-        #[derive(Clone, Debug, PartialEq)]
-        pub struct UniverseInstance(Vec<Level>);
-
-        impl UniverseInstance {
-            pub fn empty() -> UniverseInstance {
-                UniverseInstance(Vec::new())
-            }
-        }
-
-        #[derive(Clone, Debug, PartialEq)]
-        pub enum Level {
-            Prop,
-            Set,
-            Level(String),
-            DeBruijnIndex(DeBruijnIndex),
-        }
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum Sort {
+        Prop,
+        Set,
+        Type(u32),
     }
 }
 
 pub mod examples {
-    use super::ir::{universe::*, *};
+    use super::ir::*;
 
     /// enum Unit() : Type 0 {}
     pub fn unit() -> Inductive {
         Inductive {
             name: "Unit".to_string(),
-            parameters: Vec::new(),
-            arity: Term::Sort(Universe::build_one(Expression::set())),
+            parameter_count: 0,
+            typ: Term::Sort(Sort::Set),
             constructors: Vec::new(),
         }
     }
@@ -198,22 +108,19 @@ pub mod examples {
 
         Inductive {
             name: natural.clone(),
-            parameters: Vec::new(),
-            arity: Term::Sort(Universe::build_one(Expression::set())),
+            parameter_count: 0,
+            typ: Term::Sort(Sort::Set),
             constructors: vec![
                 Constructor {
                     name: zero,
-                    typ: Term::Inductive(natural.clone(), UniverseInstance::empty()),
+                    typ: Term::Inductive(natural.clone()),
                 },
                 Constructor {
                     name: successor,
                     typ: Term::DependentProduct {
                         parameter_name: Name::Anonymous,
-                        parameter_type: Box::new(Term::Inductive(
-                            natural.clone(),
-                            UniverseInstance::empty(),
-                        )),
-                        return_type: Box::new(Term::Inductive(natural, UniverseInstance::empty())),
+                        parameter_type: Box::new(Term::Inductive(natural.clone())),
+                        return_type: Box::new(Term::Inductive(natural)),
                     },
                 },
             ],
@@ -229,13 +136,14 @@ pub mod examples {
     pub fn nat_add() -> HIR {
         let nat = nat();
 
-        let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
+        let add_str = "add".to_string();
+        let nat_term = Box::new(Term::Inductive(nat.name.clone()));
         let a = Name::Named("a".to_string());
         let b = Name::Named("b".to_string());
 
         let add = Term::Fixpoint {
-            fixpoint_name: Name::Named("add".to_string()),
-            fixpoint_type: Box::new(Term::DependentProduct {
+            name: "add".to_string(),
+            expression_type: Box::new(Term::DependentProduct {
                 parameter_name: a.clone(),
                 parameter_type: nat_term.clone(),
                 return_type: Box::new(Term::DependentProduct {
@@ -245,40 +153,33 @@ pub mod examples {
                 }),
             }),
             body: Box::new(Term::Lambda {
-                parameter_name: a.clone(),
+                name: Name::Named(add_str.clone()),
+                parameter_name: a,
                 parameter_type: nat_term.clone(),
                 body: Box::new(Term::Lambda {
+                    name: Name::Anonymous,
                     parameter_name: b,
                     parameter_type: nat_term.clone(),
                     body: Box::new(Term::Match {
                         inductive_name: nat.name.clone(),
-                        parameter_count: 0,
-                        return_type: nat_term.clone(),
+                        return_type: nat_term,
                         scrutinee: Box::new(Term::DeBruijnIndex(1)),
                         branches: vec![
-                            (0, Term::DeBruijnIndex(0)),
-                            (
-                                1,
-                                Term::Application {
-                                    function: Box::new(Term::Constructor(
-                                        nat.name.clone(),
-                                        1,
-                                        UniverseInstance::empty(),
-                                    )),
-                                    argument: Box::new(Term::Application {
-                                        function: Box::new(Term::Application {
-                                            function: Box::new(Term::DeBruijnIndex(3)),
-                                            argument: Box::new(Term::DeBruijnIndex(0)),
-                                        }),
-                                        argument: Box::new(Term::DeBruijnIndex(1)),
+                            Term::DeBruijnIndex(0),
+                            Term::Application {
+                                function: Box::new(Term::Constructor(nat.name.clone(), 1)),
+                                argument: Box::new(Term::Application {
+                                    function: Box::new(Term::Application {
+                                        function: Box::new(Term::DeBruijnIndex(3)),
+                                        argument: Box::new(Term::DeBruijnIndex(0)),
                                     }),
-                                },
-                            ),
+                                    argument: Box::new(Term::DeBruijnIndex(1)),
+                                }),
+                            },
                         ],
                     }),
                 }),
             }),
-            recursive_parameter_index: 0,
         };
 
         HIR {
@@ -292,16 +193,10 @@ pub mod examples {
     pub fn nat_identity() -> HIR {
         let nat = nat();
 
-        let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
-        let a = Name::Named("a".to_string());
-
         let identity = Term::Lambda {
-            parameter_name: Name::Named("identity".to_string()),
-            parameter_type: Box::new(Term::DependentProduct {
-                parameter_name: a,
-                parameter_type: nat_term.clone(),
-                return_type: nat_term,
-            }),
+            name: Name::Named("identity".to_string()),
+            parameter_name: Name::Named("x".to_string()),
+            parameter_type: Box::new(Term::Inductive(nat.name.clone())),
             body: Box::new(Term::DeBruijnIndex(0)),
         };
 
@@ -310,22 +205,37 @@ pub mod examples {
         }
     }
 
+    pub fn global_constant_use_nat_identity() -> HIR {
+        let mut nat_identity_hir = nat_identity();
+
+        nat_identity_hir
+            .declarations
+            .push(Declaration::Constant(Term::Lambda {
+                name: Name::Anonymous,
+                parameter_name: Name::Named("a".to_string()),
+                parameter_type: Box::new(Term::Inductive("Nat".to_string())),
+                body: Box::new(Term::Application {
+                    function: Box::new(Term::Constant("identity".to_string())),
+                    argument: Box::new(Term::DeBruijnIndex(0)),
+                }),
+            }));
+
+        nat_identity_hir
+    }
+
     /// func (_ : Nat) {
     ///     Nat.S(Nat.O)
     /// }
     pub fn nat_zero() -> HIR {
         let nat = nat();
 
-        let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
+        let nat_term = Box::new(Term::Inductive(nat.name.clone()));
 
         let zero = Term::Lambda {
+            name: Name::Anonymous,
             parameter_name: Name::Anonymous,
             parameter_type: nat_term,
-            body: Box::new(Term::Constructor(
-                nat.name.clone(),
-                0,
-                UniverseInstance::empty(),
-            )),
+            body: Box::new(Term::Constructor(nat.name.clone(), 0)),
         };
 
         HIR {
@@ -339,27 +249,63 @@ pub mod examples {
     pub fn nat_one() -> HIR {
         let nat = nat();
 
-        let nat_term = Box::new(Term::Inductive(nat.name.clone(), UniverseInstance::empty()));
+        let nat_term = Box::new(Term::Inductive(nat.name.clone()));
 
         let one = Term::Lambda {
+            name: Name::Anonymous,
             parameter_name: Name::Anonymous,
             parameter_type: nat_term,
             body: Box::new(Term::Application {
-                function: Box::new(Term::Constructor(
-                    nat.name.clone(),
-                    1,
-                    UniverseInstance::empty(),
-                )),
-                argument: Box::new(Term::Constructor(
-                    nat.name.clone(),
-                    0,
-                    UniverseInstance::empty(),
-                )),
+                function: Box::new(Term::Constructor(nat.name.clone(), 1)),
+                argument: Box::new(Term::Constructor(nat.name.clone(), 0)),
             }),
         };
 
         HIR {
             declarations: vec![Declaration::Inductive(nat), Declaration::Constant(one)],
+        }
+    }
+    /// enum List(T : Set) : Set {
+    ///     Nil() -> List T,
+    ///     Cons(head : T, tail : List T) -> List T,
+    /// }
+    pub fn list() -> Inductive {
+        let list_name = "List".to_string();
+        Inductive {
+            name: list_name.clone(),
+            parameter_count: 1,
+            typ: Term::DependentProduct {
+                parameter_name: Name::Named("T".to_string()),
+                parameter_type: Box::new(Term::Sort(Sort::Set)),
+                return_type: Box::new(Term::Sort(Sort::Set)),
+            },
+            constructors: vec![
+                Constructor {
+                    name: "Nil".to_string(),
+                    typ: Term::Application {
+                        function: Box::new(Term::Inductive(list_name.clone())),
+                        argument: Box::new(Term::DeBruijnIndex(0)),
+                    },
+                },
+                Constructor {
+                    name: "Cons".to_string(),
+                    typ: Term::DependentProduct {
+                        parameter_name: Name::Named("head".to_string()),
+                        parameter_type: Box::new(Term::DeBruijnIndex(0)),
+                        return_type: Box::new(Term::DependentProduct {
+                            parameter_name: Name::Named("tail".to_string()),
+                            parameter_type: Box::new(Term::Application {
+                                function: Box::new(Term::Inductive(list_name.clone())),
+                                argument: Box::new(Term::DeBruijnIndex(1)),
+                            }),
+                            return_type: Box::new(Term::Application {
+                                function: Box::new(Term::Inductive(list_name)),
+                                argument: Box::new(Term::DeBruijnIndex(1)),
+                            }),
+                        }),
+                    },
+                },
+            ],
         }
     }
 }
