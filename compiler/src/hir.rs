@@ -153,7 +153,7 @@ pub mod examples {
                 }),
             }),
             body: Box::new(Term::Lambda {
-                name: Name::Named(add_str.clone()),
+                name: Name::Named(add_str),
                 parameter_name: a,
                 parameter_type: nat_term.clone(),
                 body: Box::new(Term::Lambda {
@@ -265,7 +265,8 @@ pub mod examples {
             declarations: vec![Declaration::Inductive(nat), Declaration::Constant(one)],
         }
     }
-    /// enum List(T : Set) : Set {
+
+    ///  enum List(T : Set) : Set {
     ///     Nil() -> List T,
     ///     Cons(head : T, tail : List T) -> List T,
     /// }
@@ -301,6 +302,73 @@ pub mod examples {
                             return_type: Box::new(Term::Application {
                                 function: Box::new(Term::Inductive(list_name)),
                                 argument: Box::new(Term::DeBruijnIndex(1)),
+                            }),
+                        }),
+                    },
+                },
+            ],
+        }
+    }
+
+    ///  enum Vector(T : Set) : Nat -> Set {
+    ///     Nil() -> Vector T Zero,
+    ///     Cons(head : T, tail_length : Nat, tail : Vector T tail_length) -> Vector T (Successor tail_length),
+    /// }
+    pub fn vector() -> Inductive {
+        let vector_name = "Vector".to_string();
+        let natural_name = "Nat".to_string();
+        let tail_length_name = "tail_length".to_string();
+
+        Inductive {
+            name: vector_name.clone(),
+            parameter_count: 1,
+            typ: Term::DependentProduct {
+                parameter_name: Name::Named("T".to_string()),
+                parameter_type: Box::new(Term::Sort(Sort::Set)),
+                return_type: Box::new(Term::DependentProduct {
+                    parameter_name: Name::Anonymous,
+                    parameter_type: Box::new(Term::Inductive(natural_name.clone())),
+                    return_type: Box::new(Term::Sort(Sort::Set)),
+                }),
+            },
+            constructors: vec![
+                Constructor {
+                    name: "Nil".to_string(),
+                    typ: Term::Application {
+                        function: Box::new(Term::Application {
+                            function: Box::new(Term::Inductive(vector_name.clone())),
+                            argument: Box::new(Term::DeBruijnIndex(0)),
+                        }),
+                        argument: Box::new(Term::Constructor(natural_name.clone(), 0)),
+                    },
+                },
+                Constructor {
+                    name: "Cons".to_string(),
+                    typ: Term::DependentProduct {
+                        parameter_name: Name::Named("head".to_string()),
+                        parameter_type: Box::new(Term::DeBruijnIndex(0)),
+                        return_type: Box::new(Term::DependentProduct {
+                            parameter_name: Name::Named(tail_length_name),
+                            parameter_type: Box::new(Term::Inductive(natural_name.clone())),
+                            return_type: Box::new(Term::DependentProduct {
+                                parameter_name: Name::Named("tail".to_string()),
+                                parameter_type: Box::new(Term::Application {
+                                    function: Box::new(Term::Application {
+                                        function: Box::new(Term::Inductive(vector_name.clone())),
+                                        argument: Box::new(Term::DeBruijnIndex(2)),
+                                    }),
+                                    argument: Box::new(Term::DeBruijnIndex(0)),
+                                }),
+                                return_type: Box::new(Term::Application {
+                                    function: Box::new(Term::Application {
+                                        function: Box::new(Term::Inductive(vector_name)),
+                                        argument: Box::new(Term::DeBruijnIndex(3)),
+                                    }),
+                                    argument: Box::new(Term::Application {
+                                        function: Box::new(Term::Constructor(natural_name, 1)),
+                                        argument: Box::new(Term::DeBruijnIndex(1)),
+                                    }),
+                                }),
                             }),
                         }),
                     },

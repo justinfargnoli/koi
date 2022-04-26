@@ -219,7 +219,7 @@ impl<'ctx> Context<'ctx> {
             match declaration {
                 Declaration::Constant(term) => {
                     let llvm_value = self.codegen_term(term);
-                    
+
                     // Add value to global environment if it has a name.
                     match term {
                         Term::Lambda {
@@ -322,7 +322,7 @@ impl<'ctx> Context<'ctx> {
     ) -> PointerValue<'ctx> {
         match term {
             Term::DeBruijnIndex(debruijn_index) => *local.lookup(*debruijn_index),
-            Term::Lambda { name, body, .. } => {
+            Term::Lambda { body, .. } => {
                 // Get the basic block that we were previously inserting instructions into. This is
                 // used later to build the lambda struct.
                 let llvm_previous_basic_block = self.builder.get_insert_block().unwrap();
@@ -338,15 +338,13 @@ impl<'ctx> Context<'ctx> {
                         .unwrap()
                         .into_pointer_value(),
                 );
-                
+
                 // Codegen the body.
                 let return_value = self.codegen_term_helper(body, local);
-                if let Name::Anonymous =  name {
-                    assert!(false);
-                }
+
                 // Reset the local environment.
                 local.pop();
-                
+
                 let casted_return_value = self.builder.build_bitcast(
                     return_value,
                     self.llvm_pointer_type(),
@@ -355,14 +353,14 @@ impl<'ctx> Context<'ctx> {
 
                 // Return the result of the body.
                 self.builder.build_return(Some(&casted_return_value));
-                
+
                 llvm_function.verify(true);
 
                 // Set the builders back to the position it was at before codegening this lambda.
                 self.builder.position_at_end(llvm_previous_basic_block);
 
                 let llvm_lambda_function_ptr = llvm_function.as_global_value().as_pointer_value();
-                
+
                 // Return a pointer to the struct that represents this lambda.
                 self.llvm_function_to_lambda_struct(llvm_lambda_function_ptr)
             }
