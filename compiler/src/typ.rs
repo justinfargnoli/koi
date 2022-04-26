@@ -1,25 +1,26 @@
 pub mod check {
-    use crate::hir::ir::{
-        universe::{Expression, Level, Universe, UniverseInstance},
-        Declaration, Inductive, Term, HIR, Name,
-    };
+    use crate::hir::ir::{Declaration, Inductive, Name, Sort, Term, HIR};
     use environment::{global, local};
 
     mod environment {
         pub mod global {
             use crate::hir::ir::{Inductive, Term};
 
+            enum Declaration {
+                Inductive(Inductive),
+                Constant { name: String, typ: Term },
+            }
+
             #[derive(Default)]
             pub struct Environment {
                 declarations: Vec<Declaration>,
-                // TODO: `universe_graph: uGraph.t`
             }
 
             impl Environment {
                 pub fn lookup_inductive(&self, name: &str) -> Inductive {
                     for declaration in &self.declarations {
-                        if let Declaration::Inductive(inductive_name, inductive) = declaration {
-                            if inductive_name == name {
+                        if let Declaration::Inductive(inductive) = declaration {
+                            if inductive.name == name {
                                 return inductive.clone();
                             }
                         }
@@ -28,25 +29,32 @@ pub mod check {
                 }
 
                 pub fn push_inductive(&mut self, inductive: Inductive) {
-                    self.declarations
-                        .push(Declaration::Inductive(inductive.name.clone(), inductive))
+                    self.declarations.push(Declaration::Inductive(inductive))
                 }
-            }
 
-            enum Declaration {
-                Constant(String, ConstantBody),
-                Inductive(String, Inductive),
-            }
+                pub fn push_constant(&mut self, name: String, typ: Term) {
+                    self.declarations.push(Declaration::Constant { name, typ })
+                }
 
-            struct ConstantBody {
-                typ: Term,
-                body: Option<Term>,
-                // TODO: `universes: universe_context`
+                pub fn lookup_constant_type(&self, name: &str) -> Term {
+                    for declaration in &self.declarations {
+                        if let Declaration::Constant {
+                            name: constant_name,
+                            typ,
+                        } = declaration
+                        {
+                            if constant_name == name {
+                                return typ.clone();
+                            }
+                        }
+                    }
+                    panic!()
+                }
             }
         }
 
         pub mod local {
-            use crate::hir::ir::{Name, Term};
+            use crate::hir::ir::Term;
 
             #[derive(Default)]
             pub struct Environment {
@@ -54,10 +62,10 @@ pub mod check {
             }
 
             impl Environment {
-                pub fn push_declaration(&mut self, name: Name, typ: Term) {
+                pub fn push_declaration(&mut self, /* name: Name, */ typ: Term) {
                     self.declarations.push(Declaration {
-                        name,
-                        body: None,
+                        // name,
+                        // body: None,
                         typ,
                     })
                 }
@@ -65,12 +73,16 @@ pub mod check {
                 pub fn pop_declaration(&mut self) {
                     self.declarations.pop();
                 }
+
+                pub fn is_empty(&self) -> bool {
+                    self.declarations.is_empty()
+                }
             }
 
-            #[derive(Debug)]
+            #[derive(Debug, Clone)]
             pub struct Declaration {
-                name: Name,
-                body: Option<Term>,
+                // name: Name,
+                // body: Option<Term>,
                 pub typ: Term,
             }
         }
@@ -86,13 +98,32 @@ pub mod check {
         pub fn type_check_hir(hir: &HIR) {
             let mut context = Context::default();
             for declaration in hir.declarations.iter() {
+                assert!(context.local.is_empty());
+
                 match declaration {
                     Declaration::Constant(term) => {
-                        context.type_check_term(term);
-                        // TODO: add this to the global environment
+                        let term_type = context.type_check_term(term);
+
+                        // Add term to global environment if it has a name.
+                        match term {
+                            Term::Lambda {
+                                name: Name::Named(name),
+                                ..
+                            } => context.global.push_constant(name.clone(), term_type),
+                            Term::Fixpoint {
+                                name,
+                                expression_type,
+                                ..
+                            } => context
+                                .global
+                                .push_constant(name.clone(), (**expression_type).clone()),
+                            _ => (),
+                        }
                     }
                     Declaration::Inductive(inductive) => context.type_check_inductive(inductive),
                 }
+
+                assert!(context.local.is_empty());
             }
         }
 
@@ -100,8 +131,6 @@ pub mod check {
             Context::default().type_check_term(term)
         }
 
-        // assert when type checking fails
-        // TODO: return error messages using ariadne.
         fn type_check_term(&mut self, term: &Term) -> Term {
             match term {
                 Term::DeBruijnIndex(debruijn_index) => {
@@ -113,47 +142,52 @@ pub mod check {
                         .typ
                         .clone()
                 }
-                Term::Sort(universe) => {
-                    assert_eq!(universe.length(), 1);
-                    let universe_expression = universe.first();
-                    assert!(!universe_expression.1);
-                    match universe_expression.level() {
-                        Level::Prop | Level::Set => {
-                            Term::Sort(Universe::build_one(Expression::type_1()))
-                        } // return Type 1
-                        _ => Term::Sort(Universe::build_one(universe_expression.successor())),
-                    }
-                }
+                Term::Sort(sort) => match sort {
+                    Sort::Prop | Sort::Set => Term::Sort(Sort::Type(1)),
+                    Sort::Type(number) => Term::Sort(Sort::Type(number + 1)),
+                },
                 Term::DependentProduct {
-                    parameter_name,
+                    // parameter_name,
                     parameter_type,
                     return_type,
+                    ..
                 } => {
-                    let parameter_type_type = self.type_check_term(parameter_type);
-                    let parameter_type_universe = self.sort_of(parameter_type);
+                    let parameter_type_sort = match self.type_check_term(parameter_type) {
+                        Term::Sort(sort) => sort,
+                        _ => unreachable!(),
+                    };
 
-                    self.local
-                        .push_declaration(parameter_name.clone(), parameter_type_type);
+                    self.local.push_declaration(
+                        /* parameter_name.clone(), */ (**parameter_type).clone(),
+                    );
 
-                    self.type_check_term(return_type);
-                    let return_type_universe = self.sort_of(return_type);
+                    let return_type_sort = match self.type_check_term(return_type) {
+                        Term::Sort(sort) => sort,
+                        _ => unreachable!(),
+                    };
 
                     self.local.pop_declaration();
 
-                    Term::Sort(Universe::sort_of_product(
-                        &parameter_type_universe,
-                        &return_type_universe,
-                    ))
+                    Term::Sort(match (parameter_type_sort, return_type_sort) {
+                        (_, Sort::Prop) => Sort::Prop,
+                        (Sort::Set, Sort::Set) | (Sort::Prop, Sort::Set) => Sort::Set,
+                        (Sort::Type(parameter_number), Sort::Type(return_number)) => {
+                            Sort::Type(std::cmp::max(parameter_number, return_number))
+                        }
+                        (_, Sort::Type(number)) | (Sort::Type(number), _) => Sort::Type(number),
+                    })
                 }
                 Term::Lambda {
                     parameter_name,
                     parameter_type,
                     body,
+                    ..
                 } => {
                     self.type_check_term(parameter_type);
 
-                    self.local
-                        .push_declaration(parameter_name.clone(), (**parameter_type).clone());
+                    self.local.push_declaration(
+                        /* parameter_name.clone(), */ (**parameter_type).clone(),
+                    );
                     let body_type = self.type_check_term(body);
                     self.local.pop_declaration();
 
@@ -177,16 +211,19 @@ pub mod check {
                             assert_eq!(argument_type, *parameter_type);
                             (*return_type).clone()
                         }
-                        _ => todo!("{:#?}", function_type),
+                        _ => {
+                            // dbg!(self.local.declarations.clone());
+                            // todo!("{:#?}, {:#?}", function_type, function)
+                            todo!("{:#?}", function_type)
+                        }
                     }
                 }
-                Term::Inductive(identifier, _) => {
-                    let _inductive = self.global.lookup_inductive(identifier);
-
-                    // TODO: handle universes
-                    term.clone()
+                Term::Constant(name) => self.global.lookup_constant_type(name),
+                Term::Inductive(name) => {
+                    let inductive = self.global.lookup_inductive(name);
+                    inductive.typ
                 }
-                Term::Constructor(inductive_name, branches_index, _universe_instance) => {
+                Term::Constructor(inductive_name, branches_index) => {
                     let inductive = self.global.lookup_inductive(inductive_name);
 
                     let constructor = inductive.constructors.get(*branches_index).unwrap();
@@ -204,14 +241,13 @@ pub mod check {
 
                     assert_eq!(
                         self.type_check_term(scrutinee),
-                        Term::Inductive((*inductive_name).clone(), UniverseInstance::empty())
+                        Term::Inductive((*inductive_name).clone())
                     );
 
                     self.type_check_term(return_type);
 
                     branches
                         .iter()
-                        .map(|branch| &branch.1)
                         .zip(
                             inductive
                                 .constructors
@@ -225,12 +261,15 @@ pub mod check {
                             ) -> usize {
                                 match constructor_type {
                                     Term::DependentProduct {
-                                        parameter_name,
+                                        // parameter_name,
                                         parameter_type,
                                         return_type,
+                                        ..
                                     } => {
-                                        local_environment
-                                            .push_declaration(parameter_name.clone(), (**parameter_type).clone());
+                                        local_environment.push_declaration(
+                                            // parameter_name.clone(),
+                                            (**parameter_type).clone(),
+                                        );
                                         let number_of_declarations_added =
                                             add_constructor_fields_to_environment(
                                                 local_environment,
@@ -238,18 +277,18 @@ pub mod check {
                                             );
                                         number_of_declarations_added + 1
                                     }
-                                    Term::Inductive(name, _) => {
-                                        local_environment.push_declaration(Name::Named(name.clone()), constructor_type.clone());
-                                        1
-                                    }
+                                    Term::Inductive(_) => 0,
                                     _ => unreachable!("{:#?}", constructor_type),
                                 }
                             }
 
                             let number_of_declarations_added =
-                                add_constructor_fields_to_environment(&mut self.local, &constructor_type);
+                                add_constructor_fields_to_environment(
+                                    &mut self.local,
+                                    constructor_type,
+                                );
 
-                            assert_eq!(**return_type, self.type_check_term(&branch));
+                            assert_eq!(**return_type, self.type_check_term(branch));
 
                             for _ in 0..number_of_declarations_added {
                                 self.local.pop_declaration();
@@ -259,43 +298,18 @@ pub mod check {
                     (**return_type).clone()
                 }
                 Term::Fixpoint {
-                    fixpoint_name,
-                    fixpoint_type,
+                    expression_type,
                     body,
                     ..
                 } => {
-                    self.type_check_term(fixpoint_type);
+                    self.type_check_term(expression_type);
 
-                    self.local
-                        .push_declaration(fixpoint_name.clone(), (**fixpoint_type).clone());
-                    assert_eq!(**fixpoint_type, self.type_check_term(body));
+                    self.local.push_declaration((**expression_type).clone());
+                    assert_eq!(**expression_type, self.type_check_term(body));
                     self.local.pop_declaration();
 
-                    (**fixpoint_type).clone()
+                    (**expression_type).clone()
                 }
-                _ => todo!("{:#?}", term),
-            }
-        }
-
-        fn sort_of(&self, term: &Term) -> Universe {
-            match term {
-                Term::Sort(universe) => universe.clone(),
-                Term::Inductive(name, _universe_instance) => {
-                    // Q: does `universe_instance` have anything to do with this?
-                    let inductive = self.global.lookup_inductive(name);
-                    match inductive.arity {
-                        Term::Sort(universe) => universe,
-                        _ => panic!("{:#?}", inductive.arity),
-                    }
-                }
-                Term::DependentProduct {
-                    parameter_type,
-                    return_type,
-                    ..
-                } => self
-                    .sort_of(parameter_type)
-                    .supremum(&self.sort_of(return_type)),
-                _ => todo!("{:#?}", term),
             }
         }
 
@@ -303,33 +317,59 @@ pub mod check {
             Context::default().type_check_inductive(inductive);
         }
 
-        fn well_formed_arity(arity: &Term) {
-            match arity {
-                Term::DependentProduct { return_type, .. } => {
-                    Context::well_formed_arity(&*return_type)
-                }
+        fn check_inductive_type_form(inductive_type: &Term, parameter_count: usize) {
+            match inductive_type {
+                Term::DependentProduct { return_type, .. } => Context::check_inductive_type_form(
+                    return_type,
+                    if parameter_count == 0 {
+                        0
+                    } else {
+                        parameter_count - 1
+                    },
+                ),
                 Term::Sort(_) => (),
-                _ => panic!("arity is not well formed"),
+                _ => unreachable!("{:#?}", inductive_type),
             }
         }
 
-        // assert when type checking fails
-        // TODO: return error messages using ariadne.
+        fn check_constructor_type_form(
+            inductive_name: &str,
+            constructor_type: &Term,
+            parameter_count: usize,
+        ) {
+            match constructor_type {
+                Term::DependentProduct { return_type, .. } => Context::check_constructor_type_form(
+                    inductive_name,
+                    return_type,
+                    if parameter_count == 0 {
+                        0
+                    } else {
+                        parameter_count - 1
+                    },
+                ),
+                Term::Inductive(name) => assert_eq!(inductive_name, name),
+                _ => unreachable!(),
+            }
+        }
+
         fn type_check_inductive(&mut self, inductive: &Inductive) {
-            Context::well_formed_arity(&inductive.arity);
-            Context::type_check_fresh_term(&inductive.arity);
+            Context::type_check_fresh_term(&inductive.typ);
+
+            Context::check_inductive_type_form(&inductive.typ, inductive.parameter_count);
 
             self.global.push_inductive(inductive.clone());
-            let mut constructor_universe_expressions = inductive
-                .constructors
-                .iter()
-                .map(|constructor| self.sort_of(&constructor.typ))
-                .map(|universe| universe.representative_expression().clone());
-            if let Some(first_universe_expression) = constructor_universe_expressions.next() {
-                constructor_universe_expressions.for_each(|universe_expression| {
-                    assert_eq!(universe_expression, first_universe_expression)
-                })
-            }
+
+            inductive.constructors.iter().for_each(|constructor| {
+                let constructor_type_type = self.type_check_term(&constructor.typ);
+
+                assert!(Term::is_sort(&constructor_type_type));
+
+                Context::check_constructor_type_form(
+                    &inductive.name,
+                    &constructor.typ,
+                    inductive.parameter_count,
+                );
+            });
         }
     }
 
@@ -340,9 +380,10 @@ pub mod check {
 
         #[test]
         fn identity_function() {
-            let parameter_type = Box::new(Term::Sort(Universe::build_one(Expression::set())));
+            let parameter_type = Box::new(Term::Sort(Sort::Set));
             assert_eq!(
                 Context::type_check_fresh_term(&Term::Lambda {
+                    name: Name::Anonymous,
                     parameter_name: Name::Named("a".to_string()),
                     parameter_type: parameter_type.clone(),
                     body: Box::new(Term::DeBruijnIndex(0)),
@@ -359,8 +400,9 @@ pub mod check {
         #[should_panic]
         fn identity_function_malformed() {
             Context::type_check_fresh_term(&Term::Lambda {
+                name: Name::Anonymous,
                 parameter_name: Name::Named("a".to_string()),
-                parameter_type: Box::new(Term::Sort(Universe::build_one(Expression::set()))),
+                parameter_type: Box::new(Term::Sort(Sort::Set)),
                 body: Box::new(Term::DeBruijnIndex(1)),
             });
         }
@@ -383,6 +425,11 @@ pub mod check {
         #[test]
         fn nat_identity() {
             Context::type_check_hir(&examples::nat_identity());
+        }
+
+        #[test]
+        fn global_constant_use_nat_identity() {
+            Context::type_check_hir(&examples::global_constant_use_nat_identity());
         }
 
         #[test]
