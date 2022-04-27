@@ -498,10 +498,166 @@ pub mod examples {
     /// func vector_append(T : Set, n m : Nat, a : Vector T n, b : Vector T m) -> Vector T (add n m) {
     ///     match a -> Vector T (add n m) {
     ///         Vector.Nil(T : Set) => b
-    ///         Vector.Cons
+    ///         Vector.Cons(T : Set, head : T, tail_length : Nat, tail : Vector T tail_length) =>
+    ///             Vector.Cons(T, head, add(tail_length, m), vector_append(T, tail_length, m, tail, b))
     ///     }
     /// }
     pub fn vector_append() -> HIR {
-        todo!()
+        let vector_string = "Vector".to_string();
+        let t_string = "T".to_string();
+        let n_string = "n".to_string();
+        let m_string = "m".to_string();
+        let a_string = "a".to_string();
+        let b_string = "b".to_string();
+        let nat_string = "Nat".to_string();
+        let natural_term = Term::Inductive(nat_string);
+        let add_term = Term::Constant("add".to_string());
+        let vector_term = Term::Inductive(vector_string.clone());
+
+        let append = Term::Fixpoint {
+            name: "vector_append".to_string(),
+            expression_type: Box::new(Term::DependentProduct {
+                parameter_name: Name::Named(t_string.clone()),
+                parameter_type: Box::new(Term::Sort(Sort::Set)),
+                return_type: Box::new(Term::DependentProduct {
+                    parameter_name: Name::Named(n_string.clone()),
+                    parameter_type: Box::new(natural_term.clone()),
+                    return_type: Box::new(Term::DependentProduct {
+                        parameter_name: Name::Named(m_string.clone()),
+                        parameter_type: Box::new(natural_term.clone()),
+                        return_type: Box::new(Term::DependentProduct {
+                            parameter_name: Name::Named(a_string.clone()),
+                            parameter_type: Box::new(Term::Application {
+                                function: Box::new(Term::Application {
+                                    function: Box::new(vector_term.clone()),
+                                    argument: Box::new(Term::DeBruijnIndex(2)),
+                                }),
+                                argument: Box::new(Term::DeBruijnIndex(1)),
+                            }),
+                            return_type: Box::new(Term::DependentProduct {
+                                parameter_name: Name::Named(b_string.clone()),
+                                parameter_type: Box::new(Term::Application {
+                                    function: Box::new(Term::Application {
+                                        function: Box::new(vector_term.clone()),
+                                        argument: Box::new(Term::DeBruijnIndex(3)),
+                                    }),
+                                    argument: Box::new(Term::DeBruijnIndex(1)),
+                                }),
+                                return_type: Box::new(Term::Application {
+                                    function: Box::new(Term::Application {
+                                        function: Box::new(vector_term.clone()),
+                                        argument: Box::new(Term::DeBruijnIndex(4)),
+                                    }),
+                                    argument: Box::new(Term::Application {
+                                        function: Box::new(Term::Application {
+                                            function: Box::new(add_term.clone()),
+                                            argument: Box::new(Term::DeBruijnIndex(3)),
+                                        }),
+                                        argument: Box::new(Term::DeBruijnIndex(2)),
+                                    }),
+                                }),
+                            }),
+                        }),
+                    }),
+                }),
+            }),
+            body: Box::new(Term::Lambda {
+                name: Name::Anonymous,
+                parameter_name: Name::Named(t_string),
+                parameter_type: Box::new(Term::Sort(Sort::Set)),
+                body: Box::new(Term::Lambda {
+                    name: Name::Anonymous,
+                    parameter_name: Name::Named(n_string),
+                    parameter_type: Box::new(natural_term.clone()),
+                    body: Box::new(Term::Lambda {
+                        name: Name::Anonymous,
+                        parameter_name: Name::Named(m_string),
+                        parameter_type: Box::new(natural_term),
+                        body: Box::new(Term::Lambda {
+                            name: Name::Anonymous,
+                            parameter_name: Name::Named(a_string),
+                            parameter_type: Box::new(Term::Application {
+                                function: Box::new(Term::Application {
+                                    function: Box::new(vector_term.clone()),
+                                    argument: Box::new(Term::DeBruijnIndex(2)),
+                                }),
+                                argument: Box::new(Term::DeBruijnIndex(1)),
+                            }),
+                            body: Box::new(Term::Lambda {
+                                name: Name::Anonymous,
+                                parameter_name: Name::Named(b_string),
+                                parameter_type: Box::new(Term::Application {
+                                    function: Box::new(Term::Application {
+                                        function: Box::new(vector_term.clone()),
+                                        argument: Box::new(Term::DeBruijnIndex(3)),
+                                    }),
+                                    argument: Box::new(Term::DeBruijnIndex(1)),
+                                }),
+                                body: Box::new(Term::Match {
+                                    inductive_name: vector_string.clone(),
+                                    return_type: Box::new(vector_term),
+                                    scrutinee: Box::new(Term::DeBruijnIndex(1)),
+                                    branches: vec![
+                                        Term::DeBruijnIndex(1),
+                                        Term::Application {
+                                            function: Box::new(Term::Application {
+                                                function: Box::new(Term::Application {
+                                                    function: Box::new(Term::Application {
+                                                        function: Box::new(Term::Constructor(
+                                                            vector_string,
+                                                            1,
+                                                        )),
+                                                        argument: Box::new(Term::DeBruijnIndex(3)),
+                                                    }),
+                                                    argument: Box::new(Term::DeBruijnIndex(2)),
+                                                }),
+                                                argument: Box::new(Term::Application {
+                                                    function: Box::new(Term::Application {
+                                                        function: Box::new(add_term),
+                                                        argument: Box::new(Term::DeBruijnIndex(1)),
+                                                    }),
+                                                    argument: Box::new(Term::DeBruijnIndex(6)),
+                                                }),
+                                            }),
+                                            argument: Box::new(Term::Application {
+                                                function: Box::new(Term::Application {
+                                                    function: Box::new(Term::Application {
+                                                        function: Box::new(Term::Application {
+                                                            function: Box::new(Term::Application {
+                                                                function: Box::new(
+                                                                    Term::DeBruijnIndex(9),
+                                                                ),
+                                                                argument: Box::new(
+                                                                    Term::DeBruijnIndex(3),
+                                                                ),
+                                                            }),
+                                                            argument: Box::new(
+                                                                Term::DeBruijnIndex(1),
+                                                            ),
+                                                        }),
+                                                        argument: Box::new(Term::DeBruijnIndex(6)),
+                                                    }),
+                                                    argument: Box::new(Term::DeBruijnIndex(0)),
+                                                }),
+                                                argument: Box::new(Term::DeBruijnIndex(4)),
+                                            }),
+                                        },
+                                    ],
+                                }),
+                            }),
+                        }),
+                    }),
+                }),
+            }),
+        };
+
+        let mut hir = nat_add();
+
+        hir.declarations.append(&mut vec![
+            Declaration::Inductive(vector()),
+            Declaration::Constant(append),
+        ]);
+
+        hir
     }
 }
