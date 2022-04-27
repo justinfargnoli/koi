@@ -214,11 +214,38 @@ impl<'ctx> Context<'ctx> {
         assert!(binary_output.stderr.is_empty());
     }
 
+    fn codegen_main(&self) {
+        let main_str = "main";
+        assert!(self.module.get_function(main_str).is_none());
+        // Declare the main function
+        let llvm_main_function =
+            self.module
+                .add_function(main_str, self.context.i32_type().fn_type(&[], false), None);
+
+        // Add a basic block to the function.
+        let llvm_main_function_entry_basic_block = self
+            .context
+            .append_basic_block(llvm_main_function, "main_entry");
+        self.builder
+            .position_at_end(llvm_main_function_entry_basic_block);
+    }
+
     pub fn codegen_hir(&mut self, hir: &HIR) {
+        // Codegen main if it hasn't already been generated.
+        self.codegen_main();
+
         for declaration in &hir.declarations {
+            self.builder.position_at_end(
+                self.module
+                    .get_function("main")
+                    .unwrap()
+                    .get_last_basic_block()
+                    .unwrap(),
+            );
+
             match declaration {
                 Declaration::Constant(term) => {
-                    let llvm_value = self.codegen_term(term);
+                    let llvm_value = self.codegen_term_helper(term, &mut local::Environment::new());
 
                     // Add value to global environment if it has a name.
                     match term {
@@ -235,31 +262,26 @@ impl<'ctx> Context<'ctx> {
                 Declaration::Inductive(inductive) => self.codegen_inductive(inductive),
             }
         }
+
+        self.builder.position_at_end(
+            self.module
+                .get_function("main")
+                .unwrap()
+                .get_last_basic_block()
+                .unwrap(),
+        );
+        self.builder
+            .build_return(Some(&self.context.i32_type().const_int(0, false)));
+
+        println!("{}", self.module.print_to_string().to_string());
         self.module.verify().unwrap();
     }
 
     pub fn codegen_term(&self, term: &Term) -> PointerValue<'ctx> {
-        if self.module.get_function("main").is_none() {
-            // Declare the main function
-            let llvm_main_function =
-                self.module
-                    .add_function("main", self.context.i32_type().fn_type(&[], false), None);
-            // Add a basic block to the function.
-            let llvm_main_function_entry_basic_block = self
-                .context
-                .append_basic_block(llvm_main_function, "main_entry");
-            self.builder
-                .position_at_end(llvm_main_function_entry_basic_block);
+        // Codegen main if it hasn't already been generated.
+        self.codegen_main();
 
-            let llvm_value = self.codegen_term_helper(term, &mut local::Environment::new());
-
-            self.builder
-                .build_return(Some(&self.context.i32_type().const_int(0, false)));
-
-            llvm_value
-        } else {
-            self.codegen_term_helper(term, &mut local::Environment::new())
-        }
+        self.codegen_term_helper(term, &mut local::Environment::new())
     }
 
     fn llvm_pointer_type(&self) -> PointerType<'ctx> {
@@ -680,8 +702,6 @@ impl<'ctx> Context<'ctx> {
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Index, vec};
-
     use inkwell::types::BasicType;
 
     use super::*;
@@ -694,17 +714,24 @@ mod tests {
         context.run_module();
     }
 
-    fn test_hir_with_context(hir: &HIR, inkwell_context: &InkwellContext) -> Context {
-        let inkwell_context = InkwellContext::create();
+    fn test_hir_with_context<'ctx>(
+        hir: &HIR,
+        inkwell_context: &'ctx InkwellContext,
+    ) -> Context<'ctx> {
         let mut context = Context::build(&inkwell_context);
         context.codegen_hir(&hir);
         context.run_module();
         context
     }
 
-    fn test_inductive(inductive: &Inductive, inkwell_context: &InkwellContext) -> Context {
-        let context = Context::build(inkwell_context);
-        context.codegen_inductive(inductive);
+    fn test_inductive<'ctx>(
+        inductive: Inductive,
+        inkwell_context: &'ctx InkwellContext,
+    ) -> Context<'ctx> {
+        let mut context = Context::build(inkwell_context);
+        context.codegen_hir(&HIR {
+            declarations: vec![Declaration::Inductive(inductive)],
+        });
         context.run_module();
         context
     }
@@ -712,17 +739,18 @@ mod tests {
     #[test]
     fn unit_type() {
         let unit = examples::unit();
-
         let inkwell_context = InkwellContext::create();
-        let mut context = Context::build(&inkwell_context);
-        context.codegen_inductive(&unit);
+        let context = test_inductive(unit.clone(), &inkwell_context);
+
+        let unit_llvm_struct = context.module.get_struct_type(&unit.name).unwrap();
+        assert_eq!(unit_llvm_struct.get_field_types().len(), 0);
     }
 
     #[test]
     fn nat_type() {
         let inductive_nat = examples::nat();
         let inkwell_context = InkwellContext::create();
-        let mut context = test_inductive(inductive, &inkwell_context);
+        let context = test_inductive(inductive_nat.clone(), &inkwell_context);
 
         let nat_llvm_struct = context.module.get_struct_type(&inductive_nat.name).unwrap();
         let nat_field_types = nat_llvm_struct.get_field_types();
@@ -775,6 +803,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn global_constant_use_nat_identity() {
         test_hir(&examples::global_constant_use_nat_identity());
     }
@@ -793,30 +822,31 @@ mod tests {
     fn list_type() {
         let list = examples::list();
         let inkwell_context = InkwellContext::create();
-        let context = test_inductive(&list, &inkwell_context);
+        let context = test_inductive(list.clone(), &inkwell_context);
 
         let list_llvm_struct = context.module.get_struct_type(&list.name).unwrap();
-        assert_eq!(3, list_llvm_struct.get_field_types());
+        assert_eq!(3, list_llvm_struct.get_field_types().len());
 
         let list_nil_llvm_struct = context
             .module
             .get_struct_type(&Context::constructor_llvm_name(
                 &list.name,
                 &list.constructors.get(0).unwrap().name,
-            ));
+            ))
+            .unwrap();
         assert_eq!(1, list_nil_llvm_struct.get_field_types().len());
         assert_eq!(
             list_nil_llvm_struct.get_field_types()[0],
             context.context.i8_type().as_basic_type_enum()
         );
 
-        let list_cons_llvm_struct =
-            context
-                .module
-                .get_struct_type(&Context::constructor_llvm_name(
-                    &list.name,
-                    &list.constructors.get(1).unwrap().name,
-                ));
+        let list_cons_llvm_struct = context
+            .module
+            .get_struct_type(&Context::constructor_llvm_name(
+                &list.name,
+                &list.constructors.get(1).unwrap().name,
+            ))
+            .unwrap();
         assert_eq!(3, list_cons_llvm_struct.get_field_types().len());
         assert_eq!(
             list_cons_llvm_struct.get_field_types()[0],
@@ -849,34 +879,37 @@ mod tests {
         let inkwell_context = InkwellContext::create();
         let context = test_hir_with_context(&vector_hir, &inkwell_context);
 
-        let vector_inductive = vector_hir.declarations[1];
+        let vector_inductive = match &vector_hir.declarations[1] {
+            Declaration::Inductive(inductive) => inductive,
+            _ => unreachable!(),
+        };
 
         let vector_llvm_struct = context
             .module
             .get_struct_type(&vector_inductive.name)
             .unwrap();
-        assert_eq!(4, vector_llvm_struct.get_field_types());
+        assert_eq!(4, vector_llvm_struct.get_field_types().len());
 
-        let vector_nil_llvm_struct =
-            context
-                .module
-                .get_struct_type(&Context::constructor_llvm_name(
-                    &vector_inductive.name,
-                    &vector_inductive.constructors.get(0).unwrap().name,
-                ));
+        let vector_nil_llvm_struct = context
+            .module
+            .get_struct_type(&Context::constructor_llvm_name(
+                &vector_inductive.name,
+                &vector_inductive.constructors.get(0).unwrap().name,
+            ))
+            .unwrap();
         assert_eq!(1, vector_nil_llvm_struct.get_field_types().len());
         assert_eq!(
-            list_nil_llvm_struct.get_field_types()[0],
+            vector_nil_llvm_struct.get_field_types()[0],
             context.context.i8_type().as_basic_type_enum()
         );
 
-        let vector_cons_llvm_struct =
-            context
-                .module
-                .get_struct_type(&Context::constructor_llvm_name(
-                    &vector_inductive.name,
-                    &vector_inductive.constructors.get(1).unwrap().name,
-                ));
+        let vector_cons_llvm_struct = context
+            .module
+            .get_struct_type(&Context::constructor_llvm_name(
+                &vector_inductive.name,
+                &vector_inductive.constructors.get(1).unwrap().name,
+            ))
+            .unwrap();
         assert_eq!(4, vector_cons_llvm_struct.get_field_types().len());
         assert_eq!(
             vector_cons_llvm_struct.get_field_types()[0],
@@ -902,7 +935,11 @@ mod tests {
             vector_cons_llvm_struct.get_field_types()[2],
             context
                 .module
-                .get_struct_type(vector_hir.declarations[0].name)
+                .get_struct_type(match &vector_hir.declarations[0] {
+                    Declaration::Inductive(inductive) => &inductive.name,
+                    _ => unreachable!(),
+                })
+                .unwrap()
                 .ptr_type(AddressSpace::Generic)
                 .as_basic_type_enum()
         );
