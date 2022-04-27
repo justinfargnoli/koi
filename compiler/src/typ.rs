@@ -433,13 +433,33 @@ pub mod check {
         }
 
         #[test]
+        fn nat_zero() {
+            Context::type_check_hir(&examples::nat_zero());
+        }
+
+        #[test]
         fn nat_one() {
             Context::type_check_hir(&examples::nat_one());
         }
 
         #[test]
-        fn nat_zero() {
-            Context::type_check_hir(&examples::nat_zero());
+        fn list_type() {
+            Context::type_check_fresh_inductive(&examples::list())
+        }
+
+        #[test]
+        fn list_append() {
+            Context::type_check_hir(&examples::list_append());
+        }
+
+        #[test]
+        fn vector_type() {
+            Context::type_check_hir(&examples::vector())
+        }
+
+        #[test]
+        fn vector_append() {
+            Context::type_check_hir(&examples::vector_append());
         }
     }
 }

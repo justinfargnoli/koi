@@ -680,6 +680,8 @@ impl<'ctx> Context<'ctx> {
 
 #[cfg(test)]
 mod tests {
+    use std::{ops::Index, vec};
+
     use inkwell::types::BasicType;
 
     use super::*;
@@ -688,9 +690,23 @@ mod tests {
     fn test_hir(hir: &HIR) {
         let inkwell_context = InkwellContext::create();
         let mut context = Context::build(&inkwell_context);
-
         context.codegen_hir(&hir);
         context.run_module();
+    }
+
+    fn test_hir_with_context(hir: &HIR, inkwell_context: &InkwellContext) -> Context {
+        let inkwell_context = InkwellContext::create();
+        let mut context = Context::build(&inkwell_context);
+        context.codegen_hir(&hir);
+        context.run_module();
+        context
+    }
+
+    fn test_inductive(inductive: &Inductive, inkwell_context: &InkwellContext) -> Context {
+        let context = Context::build(inkwell_context);
+        context.codegen_inductive(inductive);
+        context.run_module();
+        context
     }
 
     #[test]
@@ -704,11 +720,9 @@ mod tests {
 
     #[test]
     fn nat_type() {
-        let inductive_nat = &examples::nat();
-
+        let inductive_nat = examples::nat();
         let inkwell_context = InkwellContext::create();
-        let mut context = Context::build(&inkwell_context);
-        context.codegen_inductive(inductive_nat);
+        let mut context = test_inductive(inductive, &inkwell_context);
 
         let nat_llvm_struct = context.module.get_struct_type(&inductive_nat.name).unwrap();
         let nat_field_types = nat_llvm_struct.get_field_types();
@@ -773,5 +787,129 @@ mod tests {
     #[test]
     fn nat_one() {
         test_hir(&examples::nat_one());
+    }
+
+    #[test]
+    fn list_type() {
+        let list = examples::list();
+        let inkwell_context = InkwellContext::create();
+        let context = test_inductive(&list, &inkwell_context);
+
+        let list_llvm_struct = context.module.get_struct_type(&list.name).unwrap();
+        assert_eq!(3, list_llvm_struct.get_field_types());
+
+        let list_nil_llvm_struct = context
+            .module
+            .get_struct_type(&Context::constructor_llvm_name(
+                &list.name,
+                &list.constructors.get(0).unwrap().name,
+            ));
+        assert_eq!(1, list_nil_llvm_struct.get_field_types().len());
+        assert_eq!(
+            list_nil_llvm_struct.get_field_types()[0],
+            context.context.i8_type().as_basic_type_enum()
+        );
+
+        let list_cons_llvm_struct =
+            context
+                .module
+                .get_struct_type(&Context::constructor_llvm_name(
+                    &list.name,
+                    &list.constructors.get(1).unwrap().name,
+                ));
+        assert_eq!(3, list_cons_llvm_struct.get_field_types().len());
+        assert_eq!(
+            list_cons_llvm_struct.get_field_types()[0],
+            context.context.i8_type().as_basic_type_enum()
+        );
+        assert_eq!(
+            list_cons_llvm_struct.get_field_types()[1],
+            context
+                .context
+                .i8_type()
+                .ptr_type(AddressSpace::Generic)
+                .as_basic_type_enum()
+        );
+        assert_eq!(
+            list_cons_llvm_struct.get_field_types()[2],
+            list_llvm_struct
+                .ptr_type(AddressSpace::Generic)
+                .as_basic_type_enum()
+        );
+    }
+
+    #[test]
+    fn list_append() {
+        test_hir(&examples::list_append());
+    }
+
+    #[test]
+    fn vector_type() {
+        let vector_hir = examples::vector();
+        let inkwell_context = InkwellContext::create();
+        let context = test_hir_with_context(&vector_hir, &inkwell_context);
+
+        let vector_inductive = vector_hir.declarations[1];
+
+        let vector_llvm_struct = context
+            .module
+            .get_struct_type(&vector_inductive.name)
+            .unwrap();
+        assert_eq!(4, vector_llvm_struct.get_field_types());
+
+        let vector_nil_llvm_struct =
+            context
+                .module
+                .get_struct_type(&Context::constructor_llvm_name(
+                    &vector_inductive.name,
+                    &vector_inductive.constructors.get(0).unwrap().name,
+                ));
+        assert_eq!(1, vector_nil_llvm_struct.get_field_types().len());
+        assert_eq!(
+            list_nil_llvm_struct.get_field_types()[0],
+            context.context.i8_type().as_basic_type_enum()
+        );
+
+        let vector_cons_llvm_struct =
+            context
+                .module
+                .get_struct_type(&Context::constructor_llvm_name(
+                    &vector_inductive.name,
+                    &vector_inductive.constructors.get(1).unwrap().name,
+                ));
+        assert_eq!(4, vector_cons_llvm_struct.get_field_types().len());
+        assert_eq!(
+            vector_cons_llvm_struct.get_field_types()[0],
+            context.context.i8_type().as_basic_type_enum()
+        );
+        assert_eq!(
+            vector_cons_llvm_struct.get_field_types()[1],
+            context
+                .context
+                .i8_type()
+                .ptr_type(AddressSpace::Generic)
+                .as_basic_type_enum()
+        );
+        assert_eq!(
+            vector_cons_llvm_struct.get_field_types()[2],
+            context
+                .context
+                .i8_type()
+                .ptr_type(AddressSpace::Generic)
+                .as_basic_type_enum()
+        );
+        assert_eq!(
+            vector_cons_llvm_struct.get_field_types()[2],
+            context
+                .module
+                .get_struct_type(vector_hir.declarations[0].name)
+                .ptr_type(AddressSpace::Generic)
+                .as_basic_type_enum()
+        );
+    }
+
+    #[test]
+    fn vector_append() {
+        test_hir(&examples::vector_append());
     }
 }

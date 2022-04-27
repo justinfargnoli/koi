@@ -4,7 +4,7 @@ pub mod ir {
         pub declarations: Vec<Declaration>,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub enum Declaration {
         Constant(Term),
         Inductive(Inductive),
@@ -421,13 +421,13 @@ pub mod examples {
     ///     Nil() -> Vector T Zero,
     ///     Cons(head : T, tail_length : Nat, tail : Vector T tail_length) -> Vector T (Successor tail_length),
     /// }
-    pub fn vector() -> Inductive {
+    pub fn vector() -> HIR {
         let vector_name = "Vector".to_string();
         let natural_name = "Nat".to_string();
         let tail_length_name = "tail_length".to_string();
         let t_name = "T".to_string();
 
-        Inductive {
+        let vector = Inductive {
             name: vector_name.clone(),
             parameter_count: 1,
             typ: Term::DependentProduct {
@@ -491,6 +491,15 @@ pub mod examples {
                         }),
                     },
                 },
+            ],
+        };
+
+        let nat_inductive = nat();
+
+        HIR {
+            declarations: vec![
+                Declaration::Inductive(nat_inductive),
+                Declaration::Inductive(vector),
             ],
         }
     }
@@ -652,12 +661,8 @@ pub mod examples {
         };
 
         let mut hir = nat_add();
-
-        hir.declarations.append(&mut vec![
-            Declaration::Inductive(vector()),
-            Declaration::Constant(append),
-        ]);
-
+        hir.declarations.push(vector().declarations[1].clone());
+        hir.declarations.push(Declaration::Constant(append));
         hir
     }
 }
