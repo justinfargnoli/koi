@@ -1,5 +1,8 @@
 pub mod check {
-    use crate::hir::ir::{Declaration, Inductive, Name, Sort, Term, HIR};
+    use crate::{
+        hir,
+        hir::ir::{Declaration, Inductive, Name, Sort, Term, HIR},
+    };
     use environment::{global, local};
 
     mod environment {
@@ -135,10 +138,7 @@ pub mod check {
             match term {
                 Term::DeBruijnIndex(debruijn_index) => {
                     // pass only if the `debruijn_index` is a local declaration
-                    self.local
-                        .declarations
-                        .get(self.local.declarations.len() - 1 - *debruijn_index)
-                        .unwrap()
+                    hir::ir::debruijn_index_lookup(&self.local.declarations, *debruijn_index)
                         .typ
                         .clone()
                 }

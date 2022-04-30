@@ -26,8 +26,16 @@ pub mod ir {
         pub typ: Term,
     }
 
-    pub type DeBruijnIndex = usize;
     type BranchesCount = usize;
+    pub type DeBruijnIndex = usize;
+
+    pub fn debruijn_index_lookup<T>(slice: &[T], debruijn_index: DeBruijnIndex) -> &T {
+        &slice[slice.len() - 1 - debruijn_index]
+    }
+
+    pub fn debruijn_index_lookup_mut<T>(slice: &mut [T], debruijn_index: DeBruijnIndex) -> &mut T {
+        &mut slice[slice.len() - 1 - debruijn_index]
+    }
 
     #[derive(Clone, Debug, PartialEq)]
     pub enum Term {
@@ -86,6 +94,13 @@ pub mod ir {
 
 pub mod examples {
     use super::ir::*;
+
+    // FIXME
+    // - Codegen
+    //   Not calling the zero constructor of `Nat`
+    //   Currying
+    //      Curring in constructors
+    //   Fixpoint
 
     /// enum Unit() : Type 0 {}
     pub fn unit() -> Inductive {
@@ -205,6 +220,64 @@ pub mod examples {
         }
     }
 
+    /// func identity(a : Nat) -> Nat {
+    ///     match a -> Nat {
+    ///         Nat.Zero => Nat.Zero,
+    ///         Nat.Successor (n : Nat) => Nat.Successor n
+    ///     }
+    /// }
+    pub fn nat_match_identity() -> HIR {
+        let nat = nat();
+
+        let identity = Term::Lambda {
+            name: Name::Named("identity".to_string()),
+            parameter_name: Name::Named("x".to_string()),
+            parameter_type: Box::new(Term::Inductive(nat.name.clone())),
+            body: Box::new(Term::Match {
+                inductive_name: nat.name.clone(),
+                return_type: Box::new(Term::Inductive(nat.name.clone())),
+                scrutinee: Box::new(Term::DeBruijnIndex(0)),
+                branches: vec![
+                    Term::Constructor(nat.name.clone(), 0),
+                    Term::Application {
+                        function: Box::new(Term::Constructor(nat.name.clone(), 1)),
+                        argument: Box::new(Term::DeBruijnIndex(0)),
+                    },
+                ],
+            }),
+        };
+
+        HIR {
+            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(identity)],
+        }
+    }
+
+    /// func identity(a : Nat) -> Nat {
+    ///     match a -> Nat {
+    ///         Nat.Zero => a,
+    ///         Nat.Successor (n : Nat) => a
+    ///     }
+    /// }
+    pub fn nat_match_simple() -> HIR {
+        let nat = nat();
+
+        let identity = Term::Lambda {
+            name: Name::Named("identity".to_string()),
+            parameter_name: Name::Named("x".to_string()),
+            parameter_type: Box::new(Term::Inductive(nat.name.clone())),
+            body: Box::new(Term::Match {
+                inductive_name: nat.name.clone(),
+                return_type: Box::new(Term::Inductive(nat.name.clone())),
+                scrutinee: Box::new(Term::DeBruijnIndex(0)),
+                branches: vec![Term::DeBruijnIndex(0), Term::DeBruijnIndex(1)],
+            }),
+        };
+
+        HIR {
+            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(identity)],
+        }
+    }
+
     pub fn global_constant_use_nat_identity() -> HIR {
         let mut nat_identity_hir = nat_identity();
 
@@ -263,6 +336,30 @@ pub mod examples {
 
         HIR {
             declarations: vec![Declaration::Inductive(nat), Declaration::Constant(one)],
+        }
+    }
+
+    /// func nat_left(left : Nat, right : Nat) {
+    ///     left
+    /// }
+    pub fn nat_left() -> HIR {
+        let nat = nat();
+        let nat_term = Box::new(Term::Inductive(nat.name.clone()));
+
+        let left = Term::Lambda {
+            name: Name::Named("nat_left".to_string()),
+            parameter_name: Name::Named("left".to_string()),
+            parameter_type: nat_term.clone(),
+            body: Box::new(Term::Lambda {
+                name: Name::Anonymous,
+                parameter_name: Name::Named("right".to_string()),
+                parameter_type: nat_term,
+                body: Box::new(Term::DeBruijnIndex(1)),
+            }),
+        };
+
+        HIR {
+            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(left)],
         }
     }
 
