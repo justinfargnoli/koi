@@ -4,6 +4,35 @@ pub mod ir {
         pub declarations: Vec<Declaration>,
     }
 
+    impl HIR {
+        pub fn get_constant(&self, index: usize) -> &Term {
+            match self.declarations.get(index).unwrap() {
+                Declaration::Constant(term) => term,
+                _ => panic!(),
+            }
+        }
+
+        pub fn get_inductive(&self, index: usize) -> &Inductive {
+            match self.declarations.get(index).unwrap() {
+                Declaration::Inductive(inductive) => inductive,
+                _ => panic!(),
+            }
+        }
+
+        pub fn with(mut self, declaration: Declaration) -> HIR {
+            self.declarations.push(declaration);
+            self
+        }
+
+        pub fn with_inductive(self, inductive: Inductive) -> HIR {
+            self.with(Declaration::Inductive(inductive))
+        }
+
+        pub fn with_constant(self, constant: Term) -> HIR {
+            self.with(Declaration::Constant(constant))
+        }
+    }
+
     #[derive(Debug, Clone)]
     pub enum Declaration {
         Constant(Term),
@@ -113,7 +142,7 @@ pub mod examples {
     /// enum Unit(T : Set) : Set {
     ///     UnitConstructor : Unit T
     /// }
-    /// 
+    ///
     /// Shouldn't type check because `UnitConstructor` doesn't take `T` as a parameter.
     pub fn generic_unit() -> Inductive {
         let unit_name = "Unit".to_string();
@@ -123,7 +152,7 @@ pub mod examples {
             name: unit_name.clone(),
             parameter_count: 0,
             typ: Term::DependentProduct {
-                parameter_name: Name::Named(t_name.clone()),
+                parameter_name: Name::Named(t_name),
                 parameter_type: Box::new(Term::Sort(Sort::Set)),
                 return_type: Box::new(Term::Sort(Sort::Set)),
             },
@@ -137,7 +166,51 @@ pub mod examples {
         }
     }
 
-    /// enum Nat() : Type 0 {
+    /// enum Tester() : Set {
+    ///     Constructor() -> Tester,
+    /// }
+    pub fn single_argument_constructor2() -> Inductive {
+        let tester = "Tester".to_string();
+        let constructor = "Constructor".to_string();
+
+        Inductive {
+            name: tester.clone(),
+            parameter_count: 0,
+            typ: Term::Sort(Sort::Set),
+            constructors: vec![Constructor {
+                name: constructor,
+                typ: Term::Inductive(tester),
+            }],
+        }
+    }
+
+    /// enum Tester() : Set {
+    ///     Constructor(_ : Unit) -> Tester,
+    /// }
+    pub fn single_argument_constructor() -> HIR {
+        let tester_name = "Tester".to_string();
+        let unit = unit();
+
+        let tester = Inductive {
+            name: tester_name.clone(),
+            parameter_count: 0,
+            typ: Term::Sort(Sort::Set),
+            constructors: vec![Constructor {
+                name: "Constructor".to_string(),
+                typ: Term::DependentProduct {
+                    parameter_name: Name::Anonymous,
+                    parameter_type: Box::new(Term::Inductive(unit.name.clone())),
+                    return_type: Box::new(Term::Inductive(tester_name)),
+                },
+            }],
+        };
+
+        HIR {
+            declarations: vec![Declaration::Inductive(unit), Declaration::Inductive(tester)],
+        }
+    }
+
+    /// enum Nat() : Set {
     ///     O() -> Nat,
     ///     S(_ : Nat) -> Nat,
     /// }
@@ -167,6 +240,12 @@ pub mod examples {
         }
     }
 
+    pub fn nat_hir() -> HIR {
+        HIR {
+            declarations: vec![Declaration::Inductive(nat())],
+        }
+    }
+
     /// func rec add(a b : Nat) -> Nat {
     ///     match a -> Nat {
     ///       Nat.O => b
@@ -175,7 +254,6 @@ pub mod examples {
     /// }
     pub fn nat_add() -> HIR {
         let nat = nat();
-
         let add_str = "add".to_string();
         let nat_term = Box::new(Term::Inductive(nat.name.clone()));
         let a = Name::Named("a".to_string());
@@ -206,7 +284,7 @@ pub mod examples {
                         branches: vec![
                             Term::DeBruijnIndex(0),
                             Term::Application {
-                                function: Box::new(Term::Constructor(nat.name.clone(), 1)),
+                                function: Box::new(Term::Constructor(nat.name, 1)),
                                 argument: Box::new(Term::Application {
                                     function: Box::new(Term::Application {
                                         function: Box::new(Term::DeBruijnIndex(3)),
@@ -221,9 +299,7 @@ pub mod examples {
             }),
         };
 
-        HIR {
-            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(add)],
-        }
+        nat_hir().with_constant(add)
     }
 
     /// func identity(a : Nat) -> Nat {
@@ -235,13 +311,11 @@ pub mod examples {
         let identity = Term::Lambda {
             name: Name::Named("identity".to_string()),
             parameter_name: Name::Named("x".to_string()),
-            parameter_type: Box::new(Term::Inductive(nat.name.clone())),
+            parameter_type: Box::new(Term::Inductive(nat.name)),
             body: Box::new(Term::DeBruijnIndex(0)),
         };
 
-        HIR {
-            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(identity)],
-        }
+        nat_hir().with_constant(identity)
     }
 
     /// func identity(a : Nat) -> Nat {
@@ -264,16 +338,14 @@ pub mod examples {
                 branches: vec![
                     Term::Constructor(nat.name.clone(), 0),
                     Term::Application {
-                        function: Box::new(Term::Constructor(nat.name.clone(), 1)),
+                        function: Box::new(Term::Constructor(nat.name, 1)),
                         argument: Box::new(Term::DeBruijnIndex(0)),
                     },
                 ],
             }),
         };
 
-        HIR {
-            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(identity)],
-        }
+        nat_hir().with_constant(identity)
     }
 
     /// func identity(a : Nat) -> Nat {
@@ -291,36 +363,32 @@ pub mod examples {
             parameter_type: Box::new(Term::Inductive(nat.name.clone())),
             body: Box::new(Term::Match {
                 inductive_name: nat.name.clone(),
-                return_type: Box::new(Term::Inductive(nat.name.clone())),
+                return_type: Box::new(Term::Inductive(nat.name)),
                 scrutinee: Box::new(Term::DeBruijnIndex(0)),
                 branches: vec![Term::DeBruijnIndex(0), Term::DeBruijnIndex(1)],
             }),
         };
 
-        HIR {
-            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(identity)],
-        }
+        nat_hir().with_constant(identity)
     }
 
     /// func (a : Nat) -> Nat {
     ///     identity(a)
     /// }
     pub fn global_constant_use_nat_identity() -> HIR {
-        let mut nat_identity_hir = nat_identity();
+        let hir = nat_identity();
 
-        nat_identity_hir
-            .declarations
-            .push(Declaration::Constant(Term::Lambda {
-                name: Name::Anonymous,
-                parameter_name: Name::Named("a".to_string()),
-                parameter_type: Box::new(Term::Inductive("Nat".to_string())),
-                body: Box::new(Term::Application {
-                    function: Box::new(Term::Constant("identity".to_string())),
-                    argument: Box::new(Term::DeBruijnIndex(0)),
-                }),
-            }));
+        let identity = Term::Lambda {
+            name: Name::Anonymous,
+            parameter_name: Name::Named("a".to_string()),
+            parameter_type: Box::new(Term::Inductive("Nat".to_string())),
+            body: Box::new(Term::Application {
+                function: Box::new(Term::Constant("identity".to_string())),
+                argument: Box::new(Term::DeBruijnIndex(0)),
+            }),
+        };
 
-        nat_identity_hir
+        hir.with_constant(identity)
     }
 
     /// func (_ : Nat) {
@@ -335,12 +403,10 @@ pub mod examples {
             name: Name::Anonymous,
             parameter_name: Name::Anonymous,
             parameter_type: nat_term,
-            body: Box::new(Term::Constructor(nat.name.clone(), 0)),
+            body: Box::new(Term::Constructor(nat.name, 0)),
         };
 
-        HIR {
-            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(zero)],
-        }
+        nat_hir().with_constant(zero)
     }
 
     /// func (_ : Nat) {
@@ -348,7 +414,6 @@ pub mod examples {
     /// }
     pub fn nat_one() -> HIR {
         let nat = nat();
-
         let nat_term = Box::new(Term::Inductive(nat.name.clone()));
 
         let one = Term::Lambda {
@@ -357,13 +422,11 @@ pub mod examples {
             parameter_type: nat_term,
             body: Box::new(Term::Application {
                 function: Box::new(Term::Constructor(nat.name.clone(), 1)),
-                argument: Box::new(Term::Constructor(nat.name.clone(), 0)),
+                argument: Box::new(Term::Constructor(nat.name, 0)),
             }),
         };
 
-        HIR {
-            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(one)],
-        }
+        nat_hir().with_constant(one)
     }
 
     /// func nat_left(left : Nat, right : Nat) {
@@ -371,7 +434,7 @@ pub mod examples {
     /// }
     pub fn nat_left() -> HIR {
         let nat = nat();
-        let nat_term = Box::new(Term::Inductive(nat.name.clone()));
+        let nat_term = Box::new(Term::Inductive(nat.name));
 
         let left = Term::Lambda {
             name: Name::Named("nat_left".to_string()),
@@ -385,9 +448,7 @@ pub mod examples {
             }),
         };
 
-        HIR {
-            declarations: vec![Declaration::Inductive(nat), Declaration::Constant(left)],
-        }
+        nat_hir().with_constant(left)
     }
 
     /// func rec nat_to_zero(number : Nat) -> Nat {
@@ -412,7 +473,7 @@ pub mod examples {
                 parameter_name: Name::Named(number_string),
                 parameter_type: nat_term.clone(),
                 body: Box::new(Term::Match {
-                    inductive_name: nat.name.clone(),
+                    inductive_name: nat.name,
                     return_type: nat_term,
                     scrutinee: Box::new(Term::DeBruijnIndex(0)),
                     branches: vec![
@@ -426,12 +487,7 @@ pub mod examples {
             }),
         };
 
-        HIR {
-            declarations: vec![
-                Declaration::Inductive(nat),
-                Declaration::Constant(nat_to_zero),
-            ],
-        }
+        nat_hir().with_constant(nat_to_zero)
     }
 
     ///  enum List(T : Set) : Set {
@@ -496,7 +552,8 @@ pub mod examples {
     ///     }
     /// }
     pub fn list_append() -> HIR {
-        let list_name = "List".to_string();
+        let list = list();
+        let list_name = list.name.clone();
         let list_term = Term::Inductive(list_name.clone());
         let t_name = "T".to_string();
         let a_name = "a".to_string();
@@ -576,8 +633,6 @@ pub mod examples {
                 }),
             }),
         };
-
-        let list = list();
 
         HIR {
             declarations: vec![Declaration::Inductive(list), Declaration::Constant(append)],
@@ -661,14 +716,7 @@ pub mod examples {
             ],
         };
 
-        let nat_inductive = nat();
-
-        HIR {
-            declarations: vec![
-                Declaration::Inductive(nat_inductive),
-                Declaration::Inductive(vector),
-            ],
-        }
+        nat_hir().with_inductive(vector)
     }
 
     /// func vector_append(T : Set, n m : Nat, a : Vector T n, b : Vector T m) -> Vector T (add n m) {
@@ -679,6 +727,7 @@ pub mod examples {
     ///     }
     /// }
     pub fn vector_append() -> HIR {
+        let hir = nat_add();
         let vector_string = "Vector".to_string();
         let t_string = "T".to_string();
         let n_string = "n".to_string();
@@ -826,9 +875,7 @@ pub mod examples {
             }),
         };
 
-        let mut hir = nat_add();
-        hir.declarations.push(vector().declarations[1].clone());
-        hir.declarations.push(Declaration::Constant(append));
-        hir
+        hir.with_inductive(vector().get_inductive(2).clone())
+            .with_constant(append)
     }
 }
