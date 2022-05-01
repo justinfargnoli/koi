@@ -66,7 +66,6 @@ pub mod ir {
             branches: Vec<Term>,
         },
         Fixpoint {
-            name: String,
             expression_type: Box<Term>,
             body: Box<Term>,
         },
@@ -100,7 +99,6 @@ pub mod examples {
     //   Not calling the zero constructor of `Nat`
     //   Currying
     //      Curring in constructors
-    //   Fixpoint
 
     /// enum Unit() : Type 0 {}
     pub fn unit() -> Inductive {
@@ -157,7 +155,6 @@ pub mod examples {
         let b = Name::Named("b".to_string());
 
         let add = Term::Fixpoint {
-            name: "add".to_string(),
             expression_type: Box::new(Term::DependentProduct {
                 parameter_name: a.clone(),
                 parameter_type: nat_term.clone(),
@@ -278,6 +275,9 @@ pub mod examples {
         }
     }
 
+    /// func (a : Nat) -> Nat {
+    ///     identity(a)
+    /// }
     pub fn global_constant_use_nat_identity() -> HIR {
         let mut nat_identity_hir = nat_identity();
 
@@ -297,7 +297,7 @@ pub mod examples {
     }
 
     /// func (_ : Nat) {
-    ///     Nat.S(Nat.O)
+    ///     Nat.O
     /// }
     pub fn nat_zero() -> HIR {
         let nat = nat();
@@ -360,6 +360,50 @@ pub mod examples {
 
         HIR {
             declarations: vec![Declaration::Inductive(nat), Declaration::Constant(left)],
+        }
+    }
+
+    /// func rec nat_to_zero(number : Nat) -> Nat {
+    ///     match number -> Nat {
+    ///         Nat.O => number
+    ///         Nat.S(n : Nat) => nat_to_zero(n)
+    ///     }
+    /// }
+    pub fn nat_to_zero() -> HIR {
+        let nat = nat();
+        let nat_term = Box::new(Term::Inductive(nat.name.clone()));
+        let number_string = "number".to_string();
+
+        let nat_to_zero = Term::Fixpoint {
+            expression_type: Box::new(Term::DependentProduct {
+                parameter_name: Name::Named(number_string.clone()),
+                parameter_type: nat_term.clone(),
+                return_type: nat_term.clone(),
+            }),
+            body: Box::new(Term::Lambda {
+                name: Name::Named("nat_to_zero".to_string()),
+                parameter_name: Name::Named(number_string),
+                parameter_type: nat_term.clone(),
+                body: Box::new(Term::Match {
+                    inductive_name: nat.name.clone(),
+                    return_type: nat_term,
+                    scrutinee: Box::new(Term::DeBruijnIndex(0)),
+                    branches: vec![
+                        Term::DeBruijnIndex(0),
+                        Term::Application {
+                            function: Box::new(Term::DeBruijnIndex(2)),
+                            argument: Box::new(Term::DeBruijnIndex(0)),
+                        },
+                    ],
+                }),
+            }),
+        };
+
+        HIR {
+            declarations: vec![
+                Declaration::Inductive(nat),
+                Declaration::Constant(nat_to_zero),
+            ],
         }
     }
 
@@ -431,7 +475,6 @@ pub mod examples {
         let a_name = "a".to_string();
 
         let append = Term::Fixpoint {
-            name: "list_append".to_string(),
             expression_type: Box::new(Term::DependentProduct {
                 parameter_name: Name::Named(t_name.clone()),
                 parameter_type: Box::new(Term::Sort(Sort::Set)),
@@ -455,7 +498,7 @@ pub mod examples {
                 }),
             }),
             body: Box::new(Term::Lambda {
-                name: Name::Anonymous,
+                name: Name::Named("list_append".to_string()),
                 parameter_name: Name::Named(t_name),
                 parameter_type: Box::new(Term::Sort(Sort::Set)),
                 body: Box::new(Term::Lambda {
@@ -621,7 +664,6 @@ pub mod examples {
         let vector_term = Term::Inductive(vector_string.clone());
 
         let append = Term::Fixpoint {
-            name: "vector_append".to_string(),
             expression_type: Box::new(Term::DependentProduct {
                 parameter_name: Name::Named(t_string.clone()),
                 parameter_type: Box::new(Term::Sort(Sort::Set)),
@@ -668,7 +710,7 @@ pub mod examples {
                 }),
             }),
             body: Box::new(Term::Lambda {
-                name: Name::Anonymous,
+                name: Name::Named("vector_append".to_string()),
                 parameter_name: Name::Named(t_string),
                 parameter_type: Box::new(Term::Sort(Sort::Set)),
                 body: Box::new(Term::Lambda {

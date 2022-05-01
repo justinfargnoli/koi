@@ -114,12 +114,18 @@ pub mod check {
                                 ..
                             } => context.global.push_constant(name.clone(), term_type),
                             Term::Fixpoint {
-                                name,
                                 expression_type,
+                                body,
                                 ..
-                            } => context
-                                .global
-                                .push_constant(name.clone(), (**expression_type).clone()),
+                            } => match &**body {
+                                Term::Lambda {
+                                    name: Name::Named(name),
+                                    ..
+                                } => context
+                                    .global
+                                    .push_constant(name.clone(), (**expression_type).clone()),
+                                _ => unreachable!(),
+                            },
                             _ => (),
                         }
                     }
@@ -443,21 +449,35 @@ pub mod check {
         }
 
         #[test]
+        fn nat_left() {
+            Context::type_check_hir(&examples::nat_left());
+        }
+
+        #[test]
+        fn nat_to_zero() {
+            Context::type_check_hir(&examples::nat_to_zero());
+        }
+
+        #[test]
+        #[ignore]
         fn list_type() {
             Context::type_check_fresh_inductive(&examples::list())
         }
 
         #[test]
+        #[ignore]
         fn list_append() {
             Context::type_check_hir(&examples::list_append());
         }
 
         #[test]
+        #[ignore]
         fn vector_type() {
             Context::type_check_hir(&examples::vector())
         }
 
         #[test]
+        #[ignore]
         fn vector_append() {
             Context::type_check_hir(&examples::vector_append());
         }
