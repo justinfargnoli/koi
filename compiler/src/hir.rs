@@ -98,15 +98,42 @@ pub mod examples {
     // - Codegen
     //   Not calling the zero constructor of `Nat`
     //   Currying
-    //      Curring in constructors
+    //      Curring in constructors?
 
-    /// enum Unit() : Type 0 {}
+    /// enum Unit() : Set {}
     pub fn unit() -> Inductive {
         Inductive {
             name: "Unit".to_string(),
             parameter_count: 0,
             typ: Term::Sort(Sort::Set),
             constructors: Vec::new(),
+        }
+    }
+
+    /// enum Unit(T : Set) : Set {
+    ///     UnitConstructor : Unit T
+    /// }
+    /// 
+    /// Shouldn't type check because `UnitConstructor` doesn't take `T` as a parameter.
+    pub fn generic_unit() -> Inductive {
+        let unit_name = "Unit".to_string();
+        let t_name = "T".to_string();
+
+        Inductive {
+            name: unit_name.clone(),
+            parameter_count: 0,
+            typ: Term::DependentProduct {
+                parameter_name: Name::Named(t_name.clone()),
+                parameter_type: Box::new(Term::Sort(Sort::Set)),
+                return_type: Box::new(Term::Sort(Sort::Set)),
+            },
+            constructors: vec![Constructor {
+                name: "UnitConstructor".to_string(),
+                typ: Term::Application {
+                    function: Box::new(Term::Inductive(unit_name)),
+                    argument: Box::new(Term::DeBruijnIndex(0)),
+                },
+            }],
         }
     }
 

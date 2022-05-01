@@ -419,6 +419,12 @@ pub mod check {
         }
 
         #[test]
+        #[should_panic]
+        fn generic_unit() {
+            Context::type_check_fresh_inductive(&examples::generic_unit())
+        }
+
+        #[test]
         fn nat_type() {
             Context::type_check_fresh_inductive(&examples::nat())
         }

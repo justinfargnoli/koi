@@ -1053,7 +1053,7 @@ impl<'ctx> Context<'ctx> {
             Term::Inductive(name) => {
                 accumulator.push(self.global.lookup_inductive_llvm_type(name).into());
             }
-            _ => panic!(),
+            _ => unreachable!("{:#?}", constructor_type),
         }
     }
 
@@ -1302,7 +1302,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn list_type() {
         let list = examples::list();
         let inkwell_context = InkwellContext::create();
