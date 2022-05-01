@@ -35,7 +35,10 @@ pub mod check {
                     for declaration in &self.declarations {
                         match declaration {
                             Declaration::Inductive(inductive) => assert_ne!(inductive.name, name),
-                            Declaration::Constant{ name: constant_name, .. } => assert_ne!(constant_name, name),
+                            Declaration::Constant {
+                                name: constant_name,
+                                ..
+                            } => assert_ne!(constant_name, name),
                         }
                     }
                 }
@@ -355,17 +358,15 @@ pub mod check {
             parameter_count: usize,
         ) {
             match constructor_type {
-                Term::DependentProduct { return_type, .. } => {
-                    Context::check_constructor_type_form(
-                        inductive_name,
-                        return_type,
-                        if parameter_count == 0 {
-                            0
-                        } else {
-                            parameter_count - 1
-                        },
-                    )
-                }
+                Term::DependentProduct { return_type, .. } => Context::check_constructor_type_form(
+                    inductive_name,
+                    return_type,
+                    if parameter_count == 0 {
+                        0
+                    } else {
+                        parameter_count - 1
+                    },
+                ),
                 Term::Inductive(name) => assert_eq!(inductive_name, name),
                 _ => unreachable!(),
             }

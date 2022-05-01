@@ -125,9 +125,8 @@ pub mod examples {
 
     // FIXME
     // - Codegen
-    //   Not calling the zero constructor of `Nat`
     //   Currying
-    //      Curring in constructors?
+    //      Curring in constructors
 
     /// enum Unit() : Set {}
     pub fn unit() -> Inductive {

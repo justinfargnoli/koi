@@ -1,5 +1,5 @@
 use crate::hir::ir::{DeBruijnIndex, Declaration, Inductive, Name, Term, HIR};
-use environment::{local, local::DeBruijnValue};
+use environment::{global::ConstructorFunction, local, local::DeBruijnValue};
 use inkwell::{
     builder::Builder,
     context::Context as InkwellContext,
@@ -39,7 +39,13 @@ mod environment {
         pub struct Constructor<'ctx> {
             pub name: Identifier,
             pub llvm_struct_type: StructType<'ctx>,
-            pub llvm_function: PointerValue<'ctx>,
+            pub llvm_function: ConstructorFunction<'ctx>,
+        }
+
+        #[derive(Debug)]
+        pub enum ConstructorFunction<'ctx> {
+            ZeroArgumentFunctionPointer(PointerValue<'ctx>),
+            FunctionPointer(PointerValue<'ctx>),
         }
 
         #[derive(Debug)]
@@ -445,7 +451,7 @@ impl<'ctx> Context<'ctx> {
                 self.codegen_lambda_struct(constant_function_pointer, empty_captures_struct)
             }
             Term::Constructor(inductive_name, branch_index) => {
-                let llvm_constructor_function_pointer = self
+                let llvm_constructor_value = &self
                     .global
                     .lookup_inductive(inductive_name)
                     .constructors
@@ -453,13 +459,30 @@ impl<'ctx> Context<'ctx> {
                     .unwrap()
                     .llvm_function;
 
-                let temp_llvm_constructor_empty_captures_struct =
-                    self.codegen_pointer_to_empty_struct();
+                match llvm_constructor_value {
+                    ConstructorFunction::ZeroArgumentFunctionPointer(function_pointer) => self
+                        .builder
+                        .build_call(
+                            CallableValue::try_from(*function_pointer).unwrap(),
+                            &[
+                                self.general_llvm_null_pointer().into(),
+                                self.general_llvm_null_pointer().into(),
+                            ],
+                            "call_zero_argument_constructor",
+                        )
+                        .try_as_basic_value()
+                        .unwrap_left()
+                        .into_pointer_value(),
+                    ConstructorFunction::FunctionPointer(function_pointer) => {
+                        let temp_llvm_constructor_empty_captures_struct =
+                            self.codegen_pointer_to_empty_struct();
 
-                self.codegen_lambda_struct(
-                    llvm_constructor_function_pointer,
-                    temp_llvm_constructor_empty_captures_struct,
-                )
+                        self.codegen_lambda_struct(
+                            *function_pointer,
+                            temp_llvm_constructor_empty_captures_struct,
+                        )
+                    }
+                }
             }
             Term::Match {
                 inductive_name,
@@ -840,6 +863,10 @@ impl<'ctx> Context<'ctx> {
         self.builder.build_unreachable();
     }
 
+    fn general_llvm_null_pointer(&self) -> PointerValue<'ctx> {
+        self.general_llvm_pointer_type().const_null()
+    }
+
     fn general_llvm_pointer_type(&self) -> PointerType<'ctx> {
         self.context.i8_type().ptr_type(AddressSpace::Generic)
     }
@@ -943,12 +970,15 @@ impl<'ctx> Context<'ctx> {
 
     // Codegen llvm function for each constructor.
     // TODO: Enable curried constructors.
-    fn codegen_constructor_function(
+    fn codegen_constructor_value(
         &self,
         constructor_index: u8,
         constructor_llvm_name: &str,
         constructor_llvm_struct_type: StructType<'ctx>,
-    ) -> PointerValue<'ctx> {
+    ) -> ConstructorFunction<'ctx> {
+        let is_zero_argument_constructor =
+            constructor_llvm_struct_type.get_field_types().len() == 1;
+
         let llvm_function = self.initialize_curried_llvm_function(
             &constructor_llvm_struct_type.ptr_type(AddressSpace::Generic),
             constructor_llvm_name,
@@ -1028,8 +1058,14 @@ impl<'ctx> Context<'ctx> {
 
         llvm_function.verify(true);
 
+        let llvm_function_pointer = llvm_function.as_global_value().as_pointer_value();
+
         // Return a pointer to this constructor.
-        llvm_function.as_global_value().as_pointer_value()
+        if is_zero_argument_constructor {
+            ConstructorFunction::ZeroArgumentFunctionPointer(llvm_function_pointer)
+        } else {
+            ConstructorFunction::FunctionPointer(llvm_function_pointer)
+        }
     }
 
     pub fn constructor_llvm_name(inductive_name: &str, constructor_name: &str) -> String {
@@ -1042,6 +1078,8 @@ impl<'ctx> Context<'ctx> {
         accumulator: &mut Vec<BasicTypeEnum<'ctx>>,
     ) {
         match constructor_type {
+            Term::DeBruijnIndex(_) => accumulator.push(self.general_llvm_pointer_type().into()),
+            Term::Sort(_) => (),
             Term::DependentProduct {
                 parameter_type,
                 return_type,
@@ -1050,6 +1088,9 @@ impl<'ctx> Context<'ctx> {
                 self.codegen_constructor_type_helper(parameter_type, accumulator);
                 self.codegen_constructor_type_helper(return_type, accumulator);
             }
+            Term::Application { function, .. } => {
+                self.codegen_constructor_type_helper(function, accumulator);
+            }
             Term::Inductive(name) => {
                 accumulator.push(self.global.lookup_inductive_llvm_type(name).into());
             }
@@ -1057,7 +1098,7 @@ impl<'ctx> Context<'ctx> {
         }
     }
 
-    fn codegen_constructor_type(
+    fn codegen_constructor_struct_type(
         &self,
         constructor_llvm_name: &str,
         constructor_type: &Term,
@@ -1082,14 +1123,14 @@ impl<'ctx> Context<'ctx> {
         let constructor_llvm_name = Self::constructor_llvm_name(inductive_name, &constructor.name);
 
         let constructor_llvm_type =
-            self.codegen_constructor_type(&constructor_llvm_name, &constructor.typ);
+            self.codegen_constructor_struct_type(&constructor_llvm_name, &constructor.typ);
 
         self.global.add_constructor(
             inductive_name,
             environment::global::Constructor {
                 name: constructor.name.clone(),
                 llvm_struct_type: constructor_llvm_type,
-                llvm_function: self.codegen_constructor_function(
+                llvm_function: self.codegen_constructor_value(
                     constructor_index,
                     &constructor_llvm_name,
                     constructor_llvm_type,
@@ -1302,7 +1343,7 @@ mod tests {
     }
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn list_type() {
         let list = examples::list();
         let inkwell_context = InkwellContext::create();
