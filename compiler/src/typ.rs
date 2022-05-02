@@ -330,6 +330,7 @@ pub mod check {
 
                     (**expression_type).clone()
                 }
+                Term::Undefined(_) => panic!(),
             }
         }
 
@@ -433,6 +434,11 @@ pub mod check {
         }
 
         #[test]
+        fn two_argument_constructor() {
+            Context::type_check_hir(&examples::two_argument_constructor())
+        }
+
+        #[test]
         #[should_panic]
         fn generic_unit() {
             Context::type_check_fresh_inductive(&examples::generic_unit())
@@ -533,6 +539,12 @@ pub mod check {
                     Declaration::Constant(examples::nat_add().get_constant(1).clone()),
                 ],
             });
+        }
+
+        #[test]
+        #[should_panic]
+        fn undefined() {
+            Context::type_check_hir(&examples::undefined())
         }
     }
 }

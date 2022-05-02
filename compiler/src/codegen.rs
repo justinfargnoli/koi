@@ -1,4 +1,4 @@
-use crate::hir::ir::{DeBruijnIndex, Declaration, Inductive, Name, Term, HIR};
+use crate::hir::ir::{DeBruijnIndex, Declaration, Inductive, Name, Term, Undefined, HIR};
 use environment::{global::ConstructorFunction, local, local::DeBruijnValue};
 use inkwell::{
     builder::Builder,
@@ -8,7 +8,7 @@ use inkwell::{
     values::{CallableValue, FunctionValue, PointerValue},
     AddressSpace,
 };
-use std::{collections::HashSet, fs, process::Command, thread};
+use std::{collections::HashSet, fs, iter, process::Command, thread};
 
 mod environment {
     pub mod global {
@@ -16,8 +16,6 @@ mod environment {
             types::{PointerType, StructType},
             values::PointerValue,
         };
-
-        use crate::hir::ir::Identifier;
 
         #[derive(Debug)]
         enum Declaration<'ctx> {
@@ -30,19 +28,19 @@ mod environment {
 
         #[derive(Debug)]
         pub struct Inductive<'ctx> {
-            pub name: Identifier,
+            pub name: String,
             pub llvm_type: PointerType<'ctx>,
             pub constructors: Vec<Constructor<'ctx>>,
         }
 
         #[derive(Debug)]
         pub struct Constructor<'ctx> {
-            pub name: Identifier,
-            pub llvm_struct_type: StructType<'ctx>,
-            pub llvm_function: ConstructorFunction<'ctx>,
+            pub name: String,
+            pub struct_type: StructType<'ctx>,
+            pub function: Option<ConstructorFunction<'ctx>>,
         }
 
-        #[derive(Debug)]
+        #[derive(Debug, Clone)]
         pub enum ConstructorFunction<'ctx> {
             ZeroArgumentFunctionPointer(PointerValue<'ctx>),
             FunctionPointer(PointerValue<'ctx>),
@@ -62,6 +60,38 @@ mod environment {
 
             pub fn lookup_inductive_llvm_type(&self, name: &str) -> PointerType<'ctx> {
                 self.lookup_inductive(name).llvm_type
+            }
+
+            pub fn lookup_constructor_function(
+                &self,
+                inductive_name: &str,
+                constructor_index: usize,
+            ) -> ConstructorFunction<'ctx> {
+                self.lookup_constructor(inductive_name, constructor_index)
+                    .function
+                    .as_ref()
+                    .unwrap()
+                    .clone()
+            }
+
+            pub fn lookup_constructor_struct_type(
+                &self,
+                inductive_name: &str,
+                constructor_index: usize,
+            ) -> StructType<'ctx> {
+                self.lookup_constructor(inductive_name, constructor_index)
+                    .struct_type
+            }
+
+            pub fn lookup_constructor(
+                &self,
+                inductive_name: &str,
+                constructor_index: usize,
+            ) -> &Constructor<'ctx> {
+                self.lookup_inductive(inductive_name)
+                    .constructors
+                    .get(constructor_index)
+                    .unwrap()
             }
 
             pub fn lookup_inductive(&self, name: &str) -> &Inductive<'ctx> {
@@ -133,14 +163,40 @@ mod environment {
                 })
             }
 
-            pub fn add_constructor(
+            pub fn add_constructor_struct_type(
                 &mut self,
                 inductive_name: &str,
-                constructor: Constructor<'ctx>,
+                constructor_name: String,
+                constructor_struct_type: StructType<'ctx>,
             ) {
                 self.lookup_inductive_mut(inductive_name)
                     .constructors
-                    .push(constructor);
+                    .push(Constructor {
+                        name: constructor_name,
+                        struct_type: constructor_struct_type,
+                        function: None,
+                    });
+            }
+
+            pub fn add_constructor_function(
+                &mut self,
+                inductive_name: &str,
+                constructor_name: &str,
+                constructor_function: ConstructorFunction<'ctx>,
+            ) {
+                let constructor = self
+                    .lookup_inductive_mut(inductive_name)
+                    .constructors
+                    .iter_mut()
+                    .find_map(|constructor| {
+                        if constructor.name == constructor_name {
+                            return Some(constructor);
+                        }
+                        None
+                    })
+                    .unwrap();
+
+                constructor.function = Some(constructor_function)
             }
         }
     }
@@ -197,7 +253,7 @@ mod environment {
             pub fn lookup_value(&self, debruijn_index: DeBruijnIndex) -> PointerValue<'ctx> {
                 match self.lookup(debruijn_index) {
                     DeBruijnValue::Value(pointer) => pointer,
-                    _ => unreachable!(),
+                    _ => panic!(),
                 }
             }
 
@@ -209,11 +265,17 @@ mod environment {
                 match hir::ir::debruijn_index_lookup_mut(&mut self.debruijn_values, debruijn_index)
                 {
                     DeBruijnValue::Value(ref mut value) => *value = new_pointer,
-                    _ => unreachable!(),
+                    _ => panic!(),
                 }
             }
         }
     }
+}
+
+enum CodegenFunctionConfiguration {
+    Lambda,
+    Fixpoint,
+    OuterConstructorFunction,
 }
 
 pub struct Context<'ctx> {
@@ -372,7 +434,9 @@ impl<'ctx> Context<'ctx> {
                     }
                 }
             }
-            Term::Lambda { .. } => self.codegen_lambda(term, local, false),
+            Term::Lambda { .. } => {
+                self.codegen_function(term, local, &CodegenFunctionConfiguration::Lambda)
+            }
             Term::Application { function, argument } => {
                 let llvm_function_struct_pointer = self.codegen_term_helper(function, local);
 
@@ -451,19 +515,15 @@ impl<'ctx> Context<'ctx> {
                 self.codegen_lambda_struct(constant_function_pointer, empty_captures_struct)
             }
             Term::Constructor(inductive_name, branch_index) => {
-                let llvm_constructor_value = &self
+                let llvm_constructor_value = self
                     .global
-                    .lookup_inductive(inductive_name)
-                    .constructors
-                    .get(*branch_index)
-                    .unwrap()
-                    .llvm_function;
+                    .lookup_constructor_function(inductive_name, *branch_index);
 
                 match llvm_constructor_value {
                     ConstructorFunction::ZeroArgumentFunctionPointer(function_pointer) => self
                         .builder
                         .build_call(
-                            CallableValue::try_from(*function_pointer).unwrap(),
+                            CallableValue::try_from(function_pointer).unwrap(),
                             &[
                                 self.general_llvm_null_pointer().into(),
                                 self.general_llvm_null_pointer().into(),
@@ -478,7 +538,7 @@ impl<'ctx> Context<'ctx> {
                             self.codegen_pointer_to_empty_struct();
 
                         self.codegen_lambda_struct(
-                            *function_pointer,
+                            function_pointer,
                             temp_llvm_constructor_empty_captures_struct,
                         )
                     }
@@ -548,12 +608,12 @@ impl<'ctx> Context<'ctx> {
                             .builder
                             .build_bitcast(
                                 scrutinee_llvm_value,
-                                constructor.llvm_struct_type.ptr_type(AddressSpace::Generic),
+                                constructor.struct_type.ptr_type(AddressSpace::Generic),
                                 "cast_to_inductive_variant_type",
                             )
                             .into_pointer_value();
 
-                        for i in 1..constructor.llvm_struct_type.get_field_types().len() {
+                        for i in 1..constructor.struct_type.get_field_types().len() {
                             let constructor_field_i_address = self
                                 .builder
                                 .build_struct_gep(
@@ -575,7 +635,7 @@ impl<'ctx> Context<'ctx> {
 
                         let llvm_case_expression_value = self.codegen_term_helper(branch, local);
 
-                        for _ in 1..constructor.llvm_struct_type.get_field_types().len() {
+                        for _ in 1..constructor.struct_type.get_field_types().len() {
                             local.pop();
                         }
 
@@ -626,12 +686,75 @@ impl<'ctx> Context<'ctx> {
 
                 llvm_match_expression_value
             }
-            Term::Fixpoint { body, .. } => match &**body {
-                Term::Lambda { .. } => self.codegen_lambda(body, local, true),
-                _ => unreachable!(),
+            Term::Fixpoint { .. } => {
+                self.codegen_function(term, local, &CodegenFunctionConfiguration::Fixpoint)
+            }
+            Term::Undefined(undefined) => match undefined {
+                Undefined::CodegenInnerConstructorFunction {
+                    constructor_index,
+                    inductive_name,
+                    ..
+                } => {
+                    let constructor_struct_type = self.global.lookup_constructor_struct_type(
+                        inductive_name,
+                        (*constructor_index).try_into().unwrap(),
+                    );
+
+                    // Allocate memory for the constructor's struct on the heap.
+                    let llvm_constructor_struct_pointer = self
+                        .builder
+                        .build_malloc(constructor_struct_type, "constructor_struct")
+                        .unwrap();
+
+                    // Write the tag.
+                    let llvm_constructor_tag_address = self
+                        .builder
+                        .build_struct_gep(llvm_constructor_struct_pointer, 0, "constructor_tag")
+                        .unwrap();
+                    self.builder.build_store(
+                        llvm_constructor_tag_address,
+                        self.context
+                            .i8_type()
+                            .const_int(*constructor_index as u64, false),
+                    );
+
+                    // Write to the fields of the constructor.
+                    assert_ne!(constructor_struct_type.get_field_types().len(), 0);
+                    let constructor_parameter_count =
+                        Context::constructor_parameter_count(&constructor_struct_type);
+                    for (constructor_struct_index, debruijn_index) in iter::zip(
+                        1..=constructor_parameter_count,
+                        (0..constructor_parameter_count).rev(),
+                    ) {
+                        // Computer the address of the field that we will write to.
+                        let llvm_constructor_field_address = self
+                            .builder
+                            .build_struct_gep(
+                                llvm_constructor_struct_pointer,
+                                constructor_struct_index as u32,
+                                &format!("field_{}_address", constructor_struct_index),
+                            )
+                            .unwrap();
+
+                        let debruijn_value = local.lookup_value(debruijn_index);
+                        let debruijn_value_casted = self.builder.build_bitcast(
+                            debruijn_value,
+                            BasicTypeEnum::try_from(
+                                llvm_constructor_field_address.get_type().get_element_type(),
+                            )
+                            .unwrap(),
+                            &format!("field_{}_debruijn_value_cast", constructor_struct_index),
+                        );
+
+                        self.builder
+                            .build_store(llvm_constructor_field_address, debruijn_value_casted);
+                    }
+
+                    llvm_constructor_struct_pointer
+                }
+                Undefined::Empty => panic!(),
             },
-            Term::Sort(_) | Term::DependentProduct { .. } => unreachable!(),
-            _ => todo!("{:#?}", term),
+            Term::Sort(_) | Term::DependentProduct { .. } | Term::Inductive(_) => unreachable!(),
         }
     }
 
@@ -694,107 +817,139 @@ impl<'ctx> Context<'ctx> {
         llvm_captures_struct_ptr
     }
 
-    fn codegen_lambda(
-        &self,
-        lambda: &Term,
-        local: &mut environment::local::Environment<'ctx>,
-        recursive_function: bool,
-    ) -> PointerValue<'ctx> {
+    fn name_body_from_lambda(lambda: &Term) -> (&Name, &Term) {
         match lambda {
-            Term::Lambda { name, body, .. } => {
-                // Get the indexes of all free variables in the lambda
-                let free_debruijn_indexes = self.free_variables(lambda, recursive_function);
+            Term::Lambda { name, body, .. } => (name, body),
+            _ => panic!("{:#?}", lambda),
+        }
+    }
 
-                let llvm_captures_struct_ptr =
-                    self.codegen_capturing(&free_debruijn_indexes, local);
-
-                // Get the basic block that we were previously inserting instructions into. This is
-                // used later to build the lambda struct.
-                let llvm_previous_basic_block = self.builder.get_insert_block().unwrap();
-
-                let llvm_function = self.initialize_curried_llvm_function(
-                    &self.general_llvm_pointer_type(),
-                    match name {
-                        Name::Named(name) => name,
-                        Name::Anonymous => Self::llvm_anonymous_function_name(),
-                    },
-                );
-
-                // Add captured values to the function and update the local environment
-                for (i, free_debruijn_index) in free_debruijn_indexes.iter().enumerate() {
-                    let casted_captures_struct_pointer = self
-                        .builder
-                        .build_bitcast(
-                            llvm_function.get_nth_param(1).unwrap().into_pointer_value(),
-                            llvm_captures_struct_ptr.get_type(),
-                            "casted_captures_struct_pointer",
-                        )
-                        .into_pointer_value();
-                    let debruijn_value_address = self
-                        .builder
-                        .build_struct_gep(
-                            casted_captures_struct_pointer,
-                            i.try_into().unwrap(),
-                            &format!("captures_struct_debruijn_value_{}_address", i),
-                        )
-                        .unwrap();
-                    let debruijn_value = self.builder.build_load(
-                        debruijn_value_address,
-                        &format!("captures_struct_debruijn_value_{}", i),
-                    );
-                    let debruijn_stack_pointer = self
-                        .builder
-                        .build_alloca(debruijn_value.get_type(), &format!("debruijn_value_{}", i));
-                    self.builder
-                        .build_store(debruijn_stack_pointer, debruijn_value);
-
-                    local.update(*free_debruijn_index, debruijn_stack_pointer);
+    fn codegen_function(
+        &self,
+        term: &Term,
+        local: &mut local::Environment<'ctx>,
+        configuration: &CodegenFunctionConfiguration,
+    ) -> PointerValue<'ctx> {
+        let (function_name, function_body, lambda) = match configuration {
+            CodegenFunctionConfiguration::Lambda => {
+                let (name, body) = Context::name_body_from_lambda(term);
+                (name, body, term)
+            }
+            CodegenFunctionConfiguration::Fixpoint => match term {
+                Term::Fixpoint { body: lambda, .. } => {
+                    let (name, body) = Context::name_body_from_lambda(lambda);
+                    (name, body, &**lambda)
                 }
+                _ => panic!("{:#?}", term),
+            },
+            CodegenFunctionConfiguration::OuterConstructorFunction { .. } => {
+                let (name, body) = Context::name_body_from_lambda(term);
+                (name, body, term)
+            }
+        };
 
-                let llvm_lambda_function_ptr = llvm_function.as_global_value().as_pointer_value();
+        // Get the indexes of all free variables in the lambda
+        let free_debruijn_indexes = match configuration {
+            CodegenFunctionConfiguration::Lambda
+            | CodegenFunctionConfiguration::OuterConstructorFunction => {
+                self.free_variables(lambda, false)
+            }
+            CodegenFunctionConfiguration::Fixpoint => self.free_variables(lambda, true),
+        };
 
-                if recursive_function {
-                    // Add the function to the local context
-                    local.push_recusive_function(free_debruijn_indexes, llvm_lambda_function_ptr);
-                }
+        let llvm_captures_struct_ptr = self.codegen_capturing(&free_debruijn_indexes, local);
 
-                // Push the parameter to the local environment.
-                local.push_value(
-                    llvm_function
-                        .get_first_param()
-                        .unwrap()
-                        .into_pointer_value(),
-                );
+        // Get the basic block that we were previously inserting instructions into. This is
+        // used later to build the lambda struct.
+        let llvm_previous_basic_block = self.builder.get_insert_block().unwrap();
 
-                // Codegen the body.
-                let return_value = self.codegen_term_helper(body, local);
+        let llvm_function = self.initialize_curried_llvm_function(
+            &self.general_llvm_pointer_type(),
+            match function_name {
+                Name::Named(name) => name,
+                Name::Anonymous => Self::llvm_anonymous_function_name(),
+            },
+        );
 
-                // Reset the local environment.
-                local.pop();
+        // Add captured values to the function and update the local environment
+        for (i, free_debruijn_index) in free_debruijn_indexes.iter().enumerate() {
+            let casted_captures_struct_pointer = self
+                .builder
+                .build_bitcast(
+                    llvm_function.get_nth_param(1).unwrap().into_pointer_value(),
+                    llvm_captures_struct_ptr.get_type(),
+                    "casted_captures_struct_pointer",
+                )
+                .into_pointer_value();
+            let debruijn_value_address = self
+                .builder
+                .build_struct_gep(
+                    casted_captures_struct_pointer,
+                    i.try_into().unwrap(),
+                    &format!("captures_struct_field_{}_address", i),
+                )
+                .unwrap();
+            let debruijn_value = self.builder.build_load(
+                debruijn_value_address,
+                &format!("captures_struct_field_{}_value", i),
+            );
+            let debruijn_stack_pointer = self
+                .builder
+                .build_alloca(debruijn_value.get_type(), "debruijn_value");
+            self.builder
+                .build_store(debruijn_stack_pointer, debruijn_value);
 
-                if recursive_function {
-                    // Remove the recursive function to the local context
-                    local.pop();
-                }
+            local.update(*free_debruijn_index, debruijn_stack_pointer);
+        }
 
-                let casted_return_value = self.builder.build_bitcast(
-                    return_value,
-                    self.general_llvm_pointer_type(),
-                    "return_i8_pointer",
-                );
+        let llvm_lambda_function_ptr = llvm_function.as_global_value().as_pointer_value();
 
-                // Return the result of the body.
-                self.builder.build_return(Some(&casted_return_value));
+        if let CodegenFunctionConfiguration::Fixpoint = configuration {
+            // Add the function to the local context
+            local.push_recusive_function(free_debruijn_indexes, llvm_lambda_function_ptr);
+        }
 
-                llvm_function.verify(true);
+        // Push the parameter to the local environment.
+        local.push_value(
+            llvm_function
+                .get_first_param()
+                .unwrap()
+                .into_pointer_value(),
+        );
 
-                // Set the builders back to the position it was at before codegening this lambda.
-                self.builder.position_at_end(llvm_previous_basic_block);
+        // Codegen the body.
+        let body_expression_value = self.codegen_term_helper(function_body, local);
 
+        // Reset the local environment.
+        local.pop();
+
+        if let CodegenFunctionConfiguration::Fixpoint = configuration {
+            // Remove the recursive function to the local context
+            local.pop();
+        }
+
+        let casted_return_value = self.builder.build_bitcast(
+            body_expression_value,
+            self.general_llvm_pointer_type(),
+            "return_i8_pointer",
+        );
+
+        // Return the result of the body.
+        self.builder.build_return(Some(&casted_return_value));
+
+        llvm_function.verify(true);
+
+        // Set the builders back to the position it was at before codegening this lambda.
+        self.builder.position_at_end(llvm_previous_basic_block);
+
+        match configuration {
+            CodegenFunctionConfiguration::OuterConstructorFunction { .. } => {
+                llvm_lambda_function_ptr
+            }
+            _ => {
                 // Return a pointer to the struct that represents this lambda.
                 self.codegen_lambda_struct(llvm_lambda_function_ptr, llvm_captures_struct_ptr)
             }
-            _ => unreachable!(),
         }
     }
 
@@ -895,6 +1050,10 @@ impl<'ctx> Context<'ctx> {
             .ptr_type(AddressSpace::Generic)
     }
 
+    fn constructor_parameter_count(struct_type: &StructType) -> usize {
+        struct_type.get_field_types().len() - 1
+    }
+
     fn codegen_pointer_to_empty_struct(&self) -> PointerValue<'ctx> {
         self.builder
             .build_malloc(self.context.struct_type(&[], false), "empty_struct")
@@ -938,7 +1097,7 @@ impl<'ctx> Context<'ctx> {
                         self.free_variables_helper(
                             branch,
                             max_bound_debruijn_index
-                                + constructor.llvm_struct_type.get_field_types().len(),
+                                + constructor.struct_type.get_field_types().len(),
                         )
                     })
                     .collect()
@@ -955,7 +1114,25 @@ impl<'ctx> Context<'ctx> {
                 free_indexes
             }
             Term::Fixpoint { .. } => todo!("Fixpoint"),
-            _ => unreachable!("{:#?}", term),
+            Term::Undefined(undefined) => match undefined {
+                Undefined::CodegenInnerConstructorFunction {
+                    constructor_parameter_count,
+                    ..
+                } => (0..*constructor_parameter_count)
+                    .map(|i| {
+                        self.free_variables_helper(
+                            &Term::DeBruijnIndex(i),
+                            max_bound_debruijn_index,
+                        )
+                    })
+                    .reduce(|mut a, b| {
+                        a.extend(b);
+                        a
+                    })
+                    .unwrap_or(HashSet::new()),
+                _ => panic!("{:#?}", undefined),
+            },
+            _ => panic!("{:#?}", term),
         }
     }
 
@@ -968,103 +1145,89 @@ impl<'ctx> Context<'ctx> {
         }
     }
 
-    // Codegen llvm function for each constructor.
-    // TODO: Enable curried constructors.
-    fn codegen_constructor_value(
-        &self,
+    fn generate_constructor_lambda_term_helper(
+        inductive_name: &str,
+        constructor_name: &str,
         constructor_index: u8,
-        constructor_llvm_name: &str,
-        constructor_llvm_struct_type: StructType<'ctx>,
-    ) -> ConstructorFunction<'ctx> {
-        let is_zero_argument_constructor =
-            constructor_llvm_struct_type.get_field_types().len() == 1;
-
-        let llvm_function = self.initialize_curried_llvm_function(
-            &constructor_llvm_struct_type.ptr_type(AddressSpace::Generic),
-            constructor_llvm_name,
-        );
-
-        // Allocate memory for the constructor's struct on the heap.
-        let llvm_constructor_struct_pointer = self
-            .builder
-            .build_malloc(constructor_llvm_struct_type, "constructor_struct")
-            .unwrap();
-
-        // Write the tag.
-        let llvm_constructor_tag_pointer = self
-            .builder
-            .build_struct_gep(llvm_constructor_struct_pointer, 0, "constructor_tag")
-            .unwrap();
-        self.builder.build_store(
-            llvm_constructor_tag_pointer,
-            self.context
-                .i8_type()
-                .const_int(constructor_index as u64, false),
-        );
-
-        // Write to the fields of the constructor.
-        for i in 1..constructor_llvm_struct_type.get_field_types().len() {
-            // Computer the address of the field that we will write to.
-            let llvm_constructor_field = self
-                .builder
-                .build_struct_gep(
-                    llvm_constructor_struct_pointer,
-                    i as u32,
-                    &format!("field_{}", i),
-                )
-                .unwrap();
-
-            if i == (constructor_llvm_struct_type.get_field_types().len() - 1) {
-                // Cast the type of the pointer to the type of the field.
-                let llvm_capture_field_pointer = self.builder.build_bitcast(
-                    llvm_function
-                        .get_first_param()
-                        .unwrap()
-                        .into_pointer_value(),
-                    BasicTypeEnum::try_from(llvm_constructor_field.get_type().get_element_type())
-                        .unwrap(),
-                    "parameter_pointer_cast",
-                );
-
-                self.builder
-                    .build_store(llvm_constructor_field, llvm_capture_field_pointer);
-            } else {
-                // Get the pointer value for field `i` from the capture struct.
-                let llvm_capture_field_i = self
-                    .builder
-                    .build_struct_gep(
-                        llvm_function.get_last_param().unwrap().into_pointer_value(),
-                        (i - 1) as u32, // Subtract one to account for the tag that we've added to the struct.
-                        &format!("environment_field_{}", i),
-                    )
-                    .unwrap();
-
-                // Cast the type of the pointer to the type of the field.
-                let llvm_capture_field_pointer = self.builder.build_bitcast(
-                    llvm_capture_field_i,
-                    BasicTypeEnum::try_from(llvm_constructor_field.get_type().get_element_type())
-                        .unwrap(),
-                    "capture_field_pointer_cast",
-                );
-
-                self.builder
-                    .build_store(llvm_constructor_field, llvm_capture_field_pointer);
+        constructor_parameter_count: usize,
+        constructor_parameters_left: usize,
+    ) -> Term {
+        if constructor_parameters_left <= 1 {
+            Term::Lambda {
+                name: Name::Named(Self::constructor_llvm_name(
+                    inductive_name,
+                    constructor_name,
+                )),
+                parameter_name: Name::Anonymous,
+                parameter_type: Box::new(Term::Undefined(Undefined::Empty)),
+                body: Box::new(Term::Undefined(
+                    Undefined::CodegenInnerConstructorFunction {
+                        constructor_index,
+                        inductive_name: inductive_name.to_string(),
+                        constructor_parameter_count,
+                    },
+                )),
+            }
+        } else {
+            Term::Lambda {
+                name: Name::Named(Self::constructor_llvm_name(
+                    inductive_name,
+                    constructor_name,
+                )),
+                parameter_name: Name::Anonymous,
+                parameter_type: Box::new(Term::Undefined(Undefined::Empty)),
+                body: Box::new(Context::generate_constructor_lambda_term_helper(
+                    inductive_name,
+                    constructor_name,
+                    constructor_index,
+                    constructor_parameter_count,
+                    constructor_parameters_left - 1,
+                )),
             }
         }
+    }
 
-        // Return the struct that holds the data for this constructor.
-        self.builder
-            .build_return(Some(&llvm_constructor_struct_pointer));
+    fn generate_constructor_lambda_term(
+        inductive_name: &str,
+        constructor_name: &str,
+        constructor_index: u8,
+        constructor_parameter_count: usize,
+    ) -> Term {
+        Self::generate_constructor_lambda_term_helper(
+            inductive_name,
+            constructor_name,
+            constructor_index,
+            constructor_parameter_count,
+            constructor_parameter_count,
+        )
+    }
 
-        llvm_function.verify(true);
+    // Codegen llvm function for each constructor.
+    fn codegen_constructor_function(
+        &self,
+        inductive_name: &str,
+        constructor_name: &str,
+        constructor_index: u8,
+        constructor_llvm_struct_type: StructType<'ctx>,
+    ) -> ConstructorFunction<'ctx> {
+        let constructor_parameter_count =
+            Context::constructor_parameter_count(&constructor_llvm_struct_type);
+        let constructor_lambda_term = Context::generate_constructor_lambda_term(
+            inductive_name,
+            constructor_name,
+            constructor_index,
+            constructor_parameter_count,
+        );
+        let llvm_constructor_function = self.codegen_function(
+            &constructor_lambda_term,
+            &mut local::Environment::new(),
+            &CodegenFunctionConfiguration::OuterConstructorFunction,
+        );
 
-        let llvm_function_pointer = llvm_function.as_global_value().as_pointer_value();
-
-        // Return a pointer to this constructor.
-        if is_zero_argument_constructor {
-            ConstructorFunction::ZeroArgumentFunctionPointer(llvm_function_pointer)
+        if constructor_parameter_count == 0 {
+            ConstructorFunction::ZeroArgumentFunctionPointer(llvm_constructor_function)
         } else {
-            ConstructorFunction::FunctionPointer(llvm_function_pointer)
+            ConstructorFunction::FunctionPointer(llvm_constructor_function)
         }
     }
 
@@ -1120,22 +1283,26 @@ impl<'ctx> Context<'ctx> {
         constructor_index: u8,
         constructor: &crate::hir::ir::Constructor,
     ) {
-        let constructor_llvm_name = Self::constructor_llvm_name(inductive_name, &constructor.name);
+        let constructor_struct_type = self.codegen_constructor_struct_type(
+            &Self::constructor_llvm_name(inductive_name, &constructor.name),
+            &constructor.typ,
+        );
 
-        let constructor_llvm_type =
-            self.codegen_constructor_struct_type(&constructor_llvm_name, &constructor.typ);
-
-        self.global.add_constructor(
+        self.global.add_constructor_struct_type(
             inductive_name,
-            environment::global::Constructor {
-                name: constructor.name.clone(),
-                llvm_struct_type: constructor_llvm_type,
-                llvm_function: self.codegen_constructor_value(
-                    constructor_index,
-                    &constructor_llvm_name,
-                    constructor_llvm_type,
-                ),
-            },
+            constructor.name.clone(),
+            constructor_struct_type,
+        );
+
+        self.global.add_constructor_function(
+            inductive_name,
+            &constructor.name,
+            self.codegen_constructor_function(
+                inductive_name,
+                &constructor.name,
+                constructor_index,
+                constructor_struct_type,
+            ),
         );
     }
 
@@ -1165,7 +1332,7 @@ impl<'ctx> Context<'ctx> {
             .constructors
             .iter()
             .map(|constructor| {
-                let constructor_llvm_type = constructor.llvm_struct_type;
+                let constructor_llvm_type = constructor.struct_type;
                 let field_count = constructor_llvm_type.get_field_types().len();
                 (field_count, constructor_llvm_type)
             })
@@ -1223,6 +1390,54 @@ mod tests {
 
         let unit_llvm_struct = context.module.get_struct_type(&unit.name).unwrap();
         assert_eq!(unit_llvm_struct.get_field_types().len(), 0);
+    }
+
+    #[test]
+    fn two_argument_constructor_type() {
+        let hir = examples::two_argument_constructor();
+        let inkwell_context = InkwellContext::create();
+        let context = test_hir_with_context(&hir, &inkwell_context);
+        let nat = hir.get_inductive(0);
+        let tester = hir.get_inductive(1);
+        let tester_constructor_llvm_name = &Context::constructor_llvm_name(
+            &tester.name,
+            &tester.constructors.get(0).unwrap().name,
+        );
+
+        let tester_llvm_struct = context.module.get_struct_type(&tester.name).unwrap();
+        assert_eq!(tester_llvm_struct.get_field_types().len(), 3);
+
+        let tester_constructor_llvm_struct = context
+            .module
+            .get_struct_type(tester_constructor_llvm_name)
+            .unwrap();
+        let constructor_field_types = tester_constructor_llvm_struct.get_field_types();
+        assert_eq!(constructor_field_types.len(), 3);
+        assert_eq!(
+            constructor_field_types,
+            tester_llvm_struct.get_field_types()
+        );
+        assert_eq!(
+            constructor_field_types[0],
+            context.context.i8_type().as_basic_type_enum()
+        );
+        let nat_field_type = context
+            .module
+            .get_struct_type(&nat.name)
+            .unwrap()
+            .ptr_type(AddressSpace::Generic)
+            .as_basic_type_enum();
+        assert_eq!(constructor_field_types[1], nat_field_type);
+        assert_eq!(constructor_field_types[2], nat_field_type);
+
+        context
+            .module
+            .get_function(tester_constructor_llvm_name)
+            .unwrap();
+        context
+            .module
+            .get_function(&format!("{}.1", tester_constructor_llvm_name))
+            .unwrap();
     }
 
     #[test]
@@ -1568,5 +1783,47 @@ mod tests {
         test_free_variables_one_recursive_lambda(&context, 1, vec![]);
         test_free_variables_one_recursive_lambda(&context, 2, vec![0]);
         test_free_variables_one_recursive_lambda(&context, 3, vec![1]);
+    }
+
+    #[test]
+    fn generate_constructor_lambda_term() {
+        let empty_string = "".to_string();
+        let empty_string_llvm_constructor =
+            Context::constructor_llvm_name(&empty_string, &empty_string);
+        assert_eq!(
+            Context::generate_constructor_lambda_term(&empty_string, &empty_string, 0, 1),
+            Term::Lambda {
+                name: Name::Named(empty_string_llvm_constructor.clone()),
+                parameter_name: Name::Anonymous,
+                parameter_type: Box::new(Term::Undefined(Undefined::Empty)),
+                body: Box::new(Term::Undefined(
+                    Undefined::CodegenInnerConstructorFunction {
+                        constructor_index: 0,
+                        inductive_name: empty_string.clone(),
+                        constructor_parameter_count: 1
+                    }
+                ))
+            }
+        );
+        assert_eq!(
+            Context::generate_constructor_lambda_term(&empty_string, &empty_string, 0, 2),
+            Term::Lambda {
+                name: Name::Named(empty_string_llvm_constructor.clone()),
+                parameter_name: Name::Anonymous,
+                parameter_type: Box::new(Term::Undefined(Undefined::Empty)),
+                body: Box::new(Term::Lambda {
+                    name: Name::Named(empty_string_llvm_constructor.clone()),
+                    parameter_name: Name::Anonymous,
+                    parameter_type: Box::new(Term::Undefined(Undefined::Empty)),
+                    body: Box::new(Term::Undefined(
+                        Undefined::CodegenInnerConstructorFunction {
+                            constructor_index: 0,
+                            inductive_name: empty_string,
+                            constructor_parameter_count: 2
+                        }
+                    ))
+                })
+            }
+        );
     }
 }

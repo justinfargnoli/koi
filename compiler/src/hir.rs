@@ -39,11 +39,9 @@ pub mod ir {
         Inductive(Inductive),
     }
 
-    pub type Identifier = String;
-
     #[derive(Clone, Debug)]
     pub struct Inductive {
-        pub name: Identifier,
+        pub name: String,
         pub parameter_count: usize,
         pub typ: Term,
         pub constructors: Vec<Constructor>,
@@ -51,14 +49,17 @@ pub mod ir {
 
     #[derive(Clone, Debug)]
     pub struct Constructor {
-        pub name: Identifier,
+        pub name: String,
         pub typ: Term,
     }
 
     type BranchesCount = usize;
     pub type DeBruijnIndex = usize;
 
-    pub fn debruijn_index_lookup<T>(slice: &[T], debruijn_index: DeBruijnIndex) -> &T {
+    pub fn debruijn_index_lookup<T: std::fmt::Debug>(
+        slice: &[T],
+        debruijn_index: DeBruijnIndex,
+    ) -> &T {
         &slice[slice.len() - 1 - debruijn_index]
     }
 
@@ -98,6 +99,7 @@ pub mod ir {
             expression_type: Box<Term>,
             body: Box<Term>,
         },
+        Undefined(Undefined),
     }
 
     impl Term {
@@ -109,7 +111,7 @@ pub mod ir {
     #[derive(Clone, Debug, PartialEq)]
     pub enum Name {
         Anonymous,
-        Named(Identifier),
+        Named(String),
     }
 
     #[derive(Clone, Debug, PartialEq)]
@@ -118,15 +120,20 @@ pub mod ir {
         Set,
         Type(u32),
     }
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum Undefined {
+        CodegenInnerConstructorFunction {
+            constructor_index: u8,
+            inductive_name: String,
+            constructor_parameter_count: usize,
+        },
+        Empty,
+    }
 }
 
 pub mod examples {
     use super::ir::*;
-
-    // FIXME
-    // - Codegen
-    //   Currying
-    //      Curring in constructors
 
     /// enum Unit() : Set {}
     pub fn unit() -> Inductive {
@@ -134,8 +141,37 @@ pub mod examples {
             name: "Unit".to_string(),
             parameter_count: 0,
             typ: Term::Sort(Sort::Set),
-            constructors: Vec::new(),
+            constructors: vec![],
         }
+    }
+
+    /// enum Tester() : Set {
+    ///     Constructor(_ : Nat, _ : Nat) : Tester
+    /// }
+    pub fn two_argument_constructor() -> HIR {
+        let tester_string = "Tester".to_string();
+        let nat = nat();
+        let nat_term = Term::Inductive(nat.name);
+
+        let tester = Inductive {
+            name: tester_string.clone(),
+            parameter_count: 0,
+            typ: Term::Sort(Sort::Set),
+            constructors: vec![Constructor {
+                name: "Constructor".to_string(),
+                typ: Term::DependentProduct {
+                    parameter_name: Name::Anonymous,
+                    parameter_type: Box::new(nat_term.clone()),
+                    return_type: Box::new(Term::DependentProduct {
+                        parameter_name: Name::Anonymous,
+                        parameter_type: Box::new(nat_term),
+                        return_type: Box::new(Term::Inductive(tester_string)),
+                    }),
+                },
+            }],
+        };
+
+        nat_hir().with_inductive(tester)
     }
 
     /// enum Unit(T : Set) : Set {
@@ -876,5 +912,11 @@ pub mod examples {
 
         hir.with_inductive(vector().get_inductive(2).clone())
             .with_constant(append)
+    }
+
+    pub fn undefined() -> HIR {
+        HIR {
+            declarations: vec![Declaration::Constant(Term::Undefined(Undefined::Empty))],
+        }
     }
 }
