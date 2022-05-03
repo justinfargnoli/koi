@@ -1,20 +1,18 @@
 pub mod check {
-    use crate::{
-        hir,
-        hir::ir::{Declaration, Inductive, Name, Sort, Term, HIR},
-    };
+    use crate::hir::ir::{Declaration, Inductive, Name, Sort, Term, HIR};
     use environment::{global, local};
 
     mod environment {
         pub mod global {
             use crate::hir::ir::{Inductive, Term};
 
+            #[derive(Debug, Clone)]
             enum Declaration {
                 Inductive(Inductive),
                 Constant { name: String, typ: Term },
             }
 
-            #[derive(Default)]
+            #[derive(Default, Debug)]
             pub struct Environment {
                 declarations: Vec<Declaration>,
             }
@@ -28,7 +26,7 @@ pub mod check {
                             }
                         }
                     }
-                    panic!()
+                    panic!("{}", name);
                 }
 
                 fn name_is_unique(&self, name: &str) {
@@ -71,36 +69,29 @@ pub mod check {
         }
 
         pub mod local {
-            use crate::hir::ir::Term;
+            use crate::hir::ir::{DeBruijnIndex, Term};
 
-            #[derive(Default)]
+            #[derive(Default, Debug)]
             pub struct Environment {
-                pub declarations: Vec<Declaration>,
+                types: Vec<Term>,
             }
 
             impl Environment {
-                pub fn push_declaration(&mut self, /* name: Name, */ typ: Term) {
-                    self.declarations.push(Declaration {
-                        // name,
-                        // body: None,
-                        typ,
-                    })
+                pub fn push_declaration(&mut self, typ: Term) {
+                    self.types.push(typ)
                 }
 
                 pub fn pop_declaration(&mut self) {
-                    self.declarations.pop();
+                    self.types.pop();
                 }
 
                 pub fn is_empty(&self) -> bool {
-                    self.declarations.is_empty()
+                    self.types.is_empty()
                 }
-            }
 
-            #[derive(Debug, Clone)]
-            pub struct Declaration {
-                // name: Name,
-                // body: Option<Term>,
-                pub typ: Term,
+                pub fn lookup(&self, debruijn_index: DeBruijnIndex) -> &Term {
+                    crate::hir::ir::debruijn_index_lookup(&self.types, debruijn_index)
+                }
             }
         }
     }
@@ -158,9 +149,7 @@ pub mod check {
             match term {
                 Term::DeBruijnIndex(debruijn_index) => {
                     // pass only if the `debruijn_index` is a local declaration
-                    hir::ir::debruijn_index_lookup(&self.local.declarations, *debruijn_index)
-                        .typ
-                        .clone()
+                    self.local.lookup(*debruijn_index).clone()
                 }
                 Term::Sort(sort) => match sort {
                     Sort::Prop | Sort::Set => Term::Sort(Sort::Type(1)),
@@ -232,8 +221,6 @@ pub mod check {
                             (*return_type).clone()
                         }
                         _ => {
-                            // dbg!(self.local.declarations.clone());
-                            // todo!("{:#?}, {:#?}", function_type, function)
                             todo!("{:#?}", function_type)
                         }
                     }
@@ -368,13 +355,19 @@ pub mod check {
                         parameter_count - 1
                     },
                 ),
-                Term::Inductive(name) => assert_eq!(inductive_name, name),
-                _ => unreachable!(),
+                Term::Inductive(name) => {
+                    assert_eq!(parameter_count, 0); // TODO: make a test case that fails this
+                    assert_eq!(inductive_name, name);
+                }
+                Term::Application { function, .. } => {
+                    Context::check_constructor_type_form(inductive_name, function, parameter_count)
+                }
+                _ => panic!("{:#?}", constructor_type),
             }
         }
 
         fn type_check_inductive(&mut self, inductive: &Inductive) {
-            Context::type_check_fresh_term(&inductive.typ);
+            self.type_check_term(&inductive.typ);
 
             Context::check_inductive_type_form(&inductive.typ, inductive.parameter_count);
 
@@ -495,7 +488,6 @@ pub mod check {
         }
 
         #[test]
-        #[ignore]
         fn list_type() {
             Context::type_check_fresh_inductive(&examples::list())
         }
@@ -507,7 +499,6 @@ pub mod check {
         }
 
         #[test]
-        #[ignore]
         fn vector_type() {
             Context::type_check_hir(&examples::vector())
         }

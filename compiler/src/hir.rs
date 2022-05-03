@@ -1,5 +1,5 @@
 pub mod ir {
-    #[derive(Default)]
+    #[derive(Default, Debug)]
     pub struct HIR {
         pub declarations: Vec<Declaration>,
     }
@@ -910,7 +910,7 @@ pub mod examples {
             }),
         };
 
-        hir.with_inductive(vector().get_inductive(2).clone())
+        hir.with_inductive(vector().get_inductive(1).clone())
             .with_constant(append)
     }
 
