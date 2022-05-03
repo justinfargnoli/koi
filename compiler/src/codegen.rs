@@ -400,7 +400,7 @@ impl<'ctx> Context<'ctx> {
         self.builder
             .build_return(Some(&self.context.i32_type().const_int(0, false)));
 
-        // println!("{}", self.module.print_to_string().to_string());
+        println!("{}", self.module.print_to_string().to_string());
         self.module.verify().unwrap();
     }
 
@@ -1019,8 +1019,7 @@ impl<'ctx> Context<'ctx> {
                 free_debruijn_indexes,
                 function_pointer,
             } => {
-                let llvm_captures_struct_ptr =
-                    self.codegen_capturing(&free_debruijn_indexes, local);
+                let llvm_captures_struct_ptr = self.codegen_capturing(free_debruijn_indexes, local);
 
                 // Return a pointer to the struct that represents this lambda.
                 self.codegen_lambda_struct(*function_pointer, llvm_captures_struct_ptr)
@@ -1155,7 +1154,7 @@ impl<'ctx> Context<'ctx> {
                         a.extend(b);
                         a
                     })
-                    .unwrap_or(HashSet::new()),
+                    .unwrap_or_default(),
                 _ => panic!("{:#?}", undefined),
             },
             _ => panic!("{:#?}", term),
@@ -1562,6 +1561,8 @@ mod tests {
             .unwrap();
         assert_eq!(first_instruction.get_opcode(), InstructionOpcode::BitCast);
         let next_instruction = first_instruction.get_next_instruction().unwrap();
+        assert_eq!(next_instruction.get_opcode(), InstructionOpcode::Alloca);
+        let next_instruction = next_instruction.get_next_instruction().unwrap();
         assert_eq!(
             next_instruction.get_opcode(),
             InstructionOpcode::GetElementPtr
@@ -1569,11 +1570,9 @@ mod tests {
         let next_instruction = next_instruction.get_next_instruction().unwrap();
         assert_eq!(next_instruction.get_opcode(), InstructionOpcode::Load);
         let next_instruction = next_instruction.get_next_instruction().unwrap();
-        assert_eq!(next_instruction.get_opcode(), InstructionOpcode::Alloca);
-        let next_instruction = next_instruction.get_next_instruction().unwrap();
         assert_eq!(next_instruction.get_opcode(), InstructionOpcode::Store);
         let next_instruction = next_instruction.get_next_instruction().unwrap();
-        assert_eq!(next_instruction.get_opcode(), InstructionOpcode::BitCast);
+        assert_eq!(next_instruction.get_opcode(), InstructionOpcode::Load);
         let next_instruction = next_instruction.get_next_instruction().unwrap();
         assert_eq!(next_instruction.get_opcode(), InstructionOpcode::Return);
     }
@@ -1640,7 +1639,6 @@ mod tests {
     }
 
     #[test]
-    // #[ignore]
     fn vector_type() {
         let vector_hir = examples::vector();
         let inkwell_context = InkwellContext::create();
