@@ -11,6 +11,7 @@ use inkwell::{
     values::{CallableValue, FunctionValue, PointerValue},
     AddressSpace,
 };
+use passes::free_variables::free_variables;
 use std::{collections::HashSet, fs, iter, process::Command, thread};
 
 enum CodegenFunctionConfiguration {
@@ -590,11 +591,9 @@ impl<'ctx> Context<'ctx> {
         let free_debruijn_indexes = match configuration {
             CodegenFunctionConfiguration::Lambda
             | CodegenFunctionConfiguration::OuterConstructorFunction => {
-                passes::free_variables(&self.global, lambda, false)
+                free_variables(&self.global, lambda, false)
             }
-            CodegenFunctionConfiguration::Fixpoint => {
-                passes::free_variables(&self.global, lambda, true)
-            }
+            CodegenFunctionConfiguration::Fixpoint => free_variables(&self.global, lambda, true),
         };
 
         let llvm_captures_struct_ptr = match configuration {
