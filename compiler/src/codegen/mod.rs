@@ -603,7 +603,7 @@ impl<'ctx> Context<'ctx> {
             }
             CodegenFunctionConfiguration::OuterConstructorFunction => None,
         };
-        
+
         // Get the basic block that we were previously inserting instructions into. This is
         // used later to build the lambda struct.
         let llvm_previous_basic_block = self.builder.get_insert_block().unwrap();
