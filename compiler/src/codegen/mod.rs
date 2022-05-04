@@ -60,7 +60,7 @@ impl<'ctx> Context<'ctx> {
             ])
             .output()
             .unwrap();
-        assert!(clang_output.status.success());
+        assert_eq!(clang_output.status.code().unwrap(), 0);
         assert!(clang_output.stdout.is_empty());
         assert!(clang_output.stderr.is_empty());
 
@@ -580,13 +580,6 @@ impl<'ctx> Context<'ctx> {
             }
         };
 
-        // if let Term::Sort(_) = parameter_type {
-        //     if let CodegenFunctionConfiguration::OuterConstructorFunction = configuration {
-        //         panic!("{:#?}", parameter_type)
-        //     }
-        //     return self.codegen_term_helper(function_body, local);
-        // }
-
         // Get the indexes of all free variables in the lambda
         let free_debruijn_indexes = match configuration {
             CodegenFunctionConfiguration::Lambda
@@ -945,7 +938,7 @@ impl<'ctx> Context<'ctx> {
     ) {
         match constructor_type {
             Term::DeBruijnIndex(_) => accumulator.push(self.pointer_type().into()),
-            Term::Sort(_) => (),
+            Term::Sort(_) => accumulator.push(self.pointer_type().into()),
             Term::DependentProduct {
                 parameter_type,
                 return_type,
@@ -1029,22 +1022,19 @@ impl<'ctx> Context<'ctx> {
             });
 
         // Set the body of `inductive_llvm_struct_type` to be that of the largest constructor
-        let largest_constructor_llvm_type = self
+        let inductive_type_max_parameters = self
             .global
             .lookup_inductive(&inductive.name)
             .constructors
             .iter()
-            .map(|constructor| {
-                let constructor_llvm_type = constructor.struct_type;
-                let field_count = constructor_llvm_type.get_field_types().len();
-                (field_count, constructor_llvm_type)
-            })
-            .max_by(|(field_count_1, _), (field_count_2, _)| {
-                usize::cmp(field_count_1, field_count_2)
-            })
-            .map(|(_, constructor)| constructor);
-        if let Some(constructor_type) = largest_constructor_llvm_type {
-            inductive_llvm_struct_type.set_body(&constructor_type.get_field_types(), false);
+            .map(|constructor| constructor.struct_type.get_field_types().len() - 1)
+            .max();
+
+        if let Some(max_parameter_count) = inductive_type_max_parameters {
+            let mut inductive_field_types: Vec<BasicTypeEnum> = vec![self.context.i8_type().into()];
+            inductive_field_types
+                .append(&mut vec![self.pointer_type().into(); max_parameter_count]);
+            inductive_llvm_struct_type.set_body(&inductive_field_types, false);
         }
     }
 
@@ -1123,10 +1113,6 @@ mod tests {
         let constructor_field_types = tester_constructor_llvm_struct.get_field_types();
         assert_eq!(constructor_field_types.len(), 3);
         assert_eq!(
-            constructor_field_types,
-            tester_llvm_struct.get_field_types()
-        );
-        assert_eq!(
             constructor_field_types[0],
             context.context.i8_type().as_basic_type_enum()
         );
@@ -1182,7 +1168,6 @@ mod tests {
             .unwrap();
         let successor_field_types = nat_successor_llvm_struct.get_field_types();
         assert_eq!(successor_field_types.len(), 2);
-        assert_eq!(successor_field_types, nat_field_types);
         assert_eq!(
             successor_field_types[0],
             context.context.i8_type().as_basic_type_enum()
@@ -1273,7 +1258,18 @@ mod tests {
         let context = test_inductive(list.clone(), &inkwell_context);
 
         let list_llvm_struct = context.module.get_struct_type(&list.name).unwrap();
-        assert_eq!(3, list_llvm_struct.get_field_types().len());
+        assert_eq!(4, list_llvm_struct.get_field_types().len());
+        list_llvm_struct
+            .get_field_types()
+            .iter()
+            .enumerate()
+            .for_each(|(i, llvm_type)| {
+                if i == 0 {
+                    assert_eq!(*llvm_type, context.context.i8_type().as_basic_type_enum());
+                } else {
+                    assert_eq!(*llvm_type, context.pointer_type().as_basic_type_enum())
+                }
+            });
 
         let list_nil_llvm_struct = context
             .module
@@ -1282,10 +1278,14 @@ mod tests {
                 &list.constructors.get(0).unwrap().name,
             ))
             .unwrap();
-        assert_eq!(1, list_nil_llvm_struct.get_field_types().len());
+        assert_eq!(2, list_nil_llvm_struct.get_field_types().len());
         assert_eq!(
             list_nil_llvm_struct.get_field_types()[0],
             context.context.i8_type().as_basic_type_enum()
+        );
+        assert_eq!(
+            list_nil_llvm_struct.get_field_types()[1],
+            context.pointer_type().as_basic_type_enum()
         );
 
         let list_cons_llvm_struct = context
@@ -1295,21 +1295,21 @@ mod tests {
                 &list.constructors.get(1).unwrap().name,
             ))
             .unwrap();
-        assert_eq!(3, list_cons_llvm_struct.get_field_types().len());
+        assert_eq!(4, list_cons_llvm_struct.get_field_types().len());
         assert_eq!(
             list_cons_llvm_struct.get_field_types()[0],
             context.context.i8_type().as_basic_type_enum()
         );
         assert_eq!(
             list_cons_llvm_struct.get_field_types()[1],
-            context
-                .context
-                .i8_type()
-                .ptr_type(AddressSpace::Generic)
-                .as_basic_type_enum()
+            context.pointer_type().as_basic_type_enum()
         );
         assert_eq!(
             list_cons_llvm_struct.get_field_types()[2],
+            context.pointer_type().as_basic_type_enum()
+        );
+        assert_eq!(
+            list_cons_llvm_struct.get_field_types()[3],
             list_llvm_struct
                 .ptr_type(AddressSpace::Generic)
                 .as_basic_type_enum()
@@ -1317,7 +1317,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn list_append() {
         let inkwell_context = InkwellContext::create();
         let context = test_hir_with_context(&examples::list_append(), &inkwell_context);
@@ -1327,10 +1327,10 @@ mod tests {
             .module
             .get_function(Context::anonymous_function_name())
             .unwrap();
-        assert!(context
+        context
             .module
             .get_function(Context::anonymous_function_name())
-            .is_none());
+            .unwrap();
     }
 
     #[test]
@@ -1348,7 +1348,7 @@ mod tests {
             .module
             .get_struct_type(&vector_inductive.name)
             .unwrap();
-        assert_eq!(4, vector_llvm_struct.get_field_types().len());
+        assert_eq!(5, vector_llvm_struct.get_field_types().len());
 
         let vector_nil_llvm_struct = context
             .module
@@ -1357,7 +1357,7 @@ mod tests {
                 &vector_inductive.constructors.get(0).unwrap().name,
             ))
             .unwrap();
-        assert_eq!(1, vector_nil_llvm_struct.get_field_types().len());
+        assert_eq!(2, vector_nil_llvm_struct.get_field_types().len());
         assert_eq!(
             vector_nil_llvm_struct.get_field_types()[0],
             context.context.i8_type().as_basic_type_enum()
@@ -1370,21 +1370,21 @@ mod tests {
                 &vector_inductive.constructors.get(1).unwrap().name,
             ))
             .unwrap();
-        assert_eq!(4, vector_cons_llvm_struct.get_field_types().len());
+        assert_eq!(5, vector_cons_llvm_struct.get_field_types().len());
         assert_eq!(
             vector_cons_llvm_struct.get_field_types()[0],
             context.context.i8_type().as_basic_type_enum()
         );
         assert_eq!(
             vector_cons_llvm_struct.get_field_types()[1],
-            context
-                .context
-                .i8_type()
-                .ptr_type(AddressSpace::Generic)
-                .as_basic_type_enum()
+            context.pointer_type().as_basic_type_enum()
         );
         assert_eq!(
             vector_cons_llvm_struct.get_field_types()[2],
+            context.pointer_type().as_basic_type_enum()
+        );
+        assert_eq!(
+            vector_cons_llvm_struct.get_field_types()[3],
             context
                 .module
                 .get_struct_type(&vector_hir.get_inductive(0).name)
@@ -1393,7 +1393,7 @@ mod tests {
                 .as_basic_type_enum()
         );
         assert_eq!(
-            vector_cons_llvm_struct.get_field_types()[3],
+            vector_cons_llvm_struct.get_field_types()[4],
             context
                 .module
                 .get_struct_type(&vector_hir.get_inductive(1).name)

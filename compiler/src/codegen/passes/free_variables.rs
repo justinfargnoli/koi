@@ -1,4 +1,5 @@
 use crate::{
+    codegen,
     codegen::environment::global::Environment,
     hir::ir::{DeBruijnIndex, Term, Undefined},
 };
@@ -8,22 +9,20 @@ fn free_variables_helper(
     global: &Environment,
     term: &Term,
     max_bound_debruijn_index: DeBruijnIndex,
-) -> HashSet<DeBruijnIndex> {
+    accumulator: &mut HashSet<DeBruijnIndex>,
+) {
     match term {
         Term::DeBruijnIndex(debruijn_index) => {
             if (*debruijn_index) > max_bound_debruijn_index {
-                let mut set = HashSet::new();
-                set.insert(debruijn_index - max_bound_debruijn_index - 1);
-                set
-            } else {
-                HashSet::new()
+                accumulator.insert(debruijn_index - max_bound_debruijn_index - 1);
             }
         }
         Term::Lambda { body, .. } => {
-            free_variables_helper(global, body, max_bound_debruijn_index + 1)
+            free_variables_helper(global, body, max_bound_debruijn_index + 1, accumulator);
         }
         Term::Match {
             inductive_name,
+            scrutinee,
             branches,
             ..
         } => {
@@ -33,38 +32,38 @@ fn free_variables_helper(
                 .constructors
                 .iter()
                 .zip(branches.iter())
-                .flat_map(|(constructor, branch)| {
+                .for_each(|(constructor, branch)| {
                     free_variables_helper(
                         global,
                         branch,
-                        max_bound_debruijn_index + constructor.struct_type.get_field_types().len(),
+                        max_bound_debruijn_index
+                            + codegen::Context::constructor_parameter_count(
+                                &constructor.struct_type,
+                            ),
+                        accumulator,
                     )
-                })
-                .collect()
+                });
+
+            free_variables_helper(global, scrutinee, max_bound_debruijn_index, accumulator);
         }
-        Term::Constant(_) | Term::Constructor(_, _) => HashSet::new(),
+        Term::Constant(_) | Term::Constructor(_, _) => (),
         Term::Application { function, argument } => {
-            let mut free_indexes =
-                free_variables_helper(global, &**function, max_bound_debruijn_index);
-            free_indexes.extend(
-                &mut free_variables_helper(global, &**argument, max_bound_debruijn_index).iter(),
-            );
-            free_indexes
+            free_variables_helper(global, &**function, max_bound_debruijn_index, accumulator);
+            free_variables_helper(global, &**argument, max_bound_debruijn_index, accumulator);
         }
         Term::Fixpoint { .. } => todo!("Fixpoint"),
         Term::Undefined(undefined) => match undefined {
             Undefined::CodegenInnerConstructorFunction {
                 constructor_parameter_count,
                 ..
-            } => (0..*constructor_parameter_count)
-                .map(|i| {
-                    free_variables_helper(global, &Term::DeBruijnIndex(i), max_bound_debruijn_index)
-                })
-                .reduce(|mut a, b| {
-                    a.extend(b);
-                    a
-                })
-                .unwrap_or_default(),
+            } => (0..*constructor_parameter_count).for_each(|i| {
+                free_variables_helper(
+                    global,
+                    &Term::DeBruijnIndex(i),
+                    max_bound_debruijn_index,
+                    accumulator,
+                )
+            }),
             _ => panic!("{:#?}", undefined),
         },
         _ => panic!("{:#?}", term),
@@ -78,7 +77,14 @@ pub fn free_variables(
 ) -> HashSet<DeBruijnIndex> {
     match lambda {
         Term::Lambda { body, .. } => {
-            free_variables_helper(global, body, if recursive_function { 1 } else { 0 })
+            let mut accumulator = HashSet::new();
+            free_variables_helper(
+                global,
+                body,
+                if recursive_function { 1 } else { 0 },
+                &mut accumulator,
+            );
+            accumulator
         }
         _ => unreachable!(),
     }
@@ -207,12 +213,46 @@ mod tests {
             free_variables(
                 &context.global,
                 &match *list_append_lambda {
-                    Term::Lambda { body, .. } => *body,
+                    Term::Lambda { body, .. } => {
+                        *body
+                    }
                     _ => panic!(),
                 },
                 false
             ),
             HashSet::from_iter(vec![1])
+        );
+    }
+
+    #[test]
+    fn nat_add() {
+        let inkwell_context = InkwellContext::create();
+        let mut context = Context::build(&inkwell_context);
+
+        context.codegen_fresh_inductive(examples::nat());
+
+        let nat_add_lambda = match examples::nat_add().get_constant(1) {
+            Term::Fixpoint { body, .. } => body.clone(),
+            _ => panic!(),
+        };
+
+        assert_eq!(
+            free_variables(&context.global, &nat_add_lambda, true),
+            HashSet::new()
+        );
+
+        assert_eq!(
+            free_variables(
+                &context.global,
+                &match *nat_add_lambda {
+                    Term::Lambda { body, .. } => {
+                        *body
+                    }
+                    _ => panic!(),
+                },
+                false
+            ),
+            HashSet::from_iter(vec![0, 1])
         );
     }
 }
