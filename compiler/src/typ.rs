@@ -163,7 +163,7 @@ pub mod check {
                 } => {
                     let parameter_type_sort = match self.type_check_term(parameter_type) {
                         Term::Sort(sort) => sort,
-                        _ => unreachable!(),
+                        _ => panic!(),
                     };
 
                     self.local.push_declaration(
@@ -172,7 +172,7 @@ pub mod check {
 
                     let return_type_sort = match self.type_check_term(return_type) {
                         Term::Sort(sort) => sort,
-                        _ => unreachable!(),
+                        _ => panic!(),
                     };
 
                     self.local.pop_declaration();
@@ -262,36 +262,8 @@ pub mod check {
                                 .map(|constructor| &constructor.typ),
                         )
                         .for_each(|(branch, constructor_type)| {
-                            fn add_constructor_fields_to_environment(
-                                local_environment: &mut environment::local::Environment,
-                                constructor_type: &Term,
-                            ) -> usize {
-                                match constructor_type {
-                                    Term::DependentProduct {
-                                        // parameter_name,
-                                        parameter_type,
-                                        return_type,
-                                        ..
-                                    } => {
-                                        local_environment.push_declaration(
-                                            // parameter_name.clone(),
-                                            (**parameter_type).clone(),
-                                        );
-                                        let number_of_declarations_added =
-                                            add_constructor_fields_to_environment(
-                                                local_environment,
-                                                &(**return_type),
-                                            );
-                                        number_of_declarations_added + 1
-                                    }
-                                    Term::Inductive(_) => 0,
-                                    Term::Application { .. } => 0,
-                                    _ => panic!("{:#?}", constructor_type),
-                                }
-                            }
-
                             let number_of_declarations_added =
-                                add_constructor_fields_to_environment(
+                                Context::add_constructor_fields_to_environment(
                                     &mut self.local,
                                     constructor_type,
                                 );
@@ -322,6 +294,34 @@ pub mod check {
             }
         }
 
+        fn add_constructor_fields_to_environment(
+            local_environment: &mut environment::local::Environment,
+            constructor_type: &Term,
+        ) -> usize {
+            match constructor_type {
+                Term::DependentProduct {
+                    // parameter_name,
+                    parameter_type,
+                    return_type,
+                    ..
+                } => {
+                    local_environment.push_declaration(
+                        // parameter_name.clone(),
+                        (**parameter_type).clone(),
+                    );
+                    let number_of_declarations_added =
+                        Context::add_constructor_fields_to_environment(
+                            local_environment,
+                            &(**return_type),
+                        );
+                    number_of_declarations_added + 1
+                }
+                Term::Inductive(_) => 0,
+                Term::Application { .. } => 0,
+                _ => panic!("{:#?}", constructor_type),
+            }
+        }
+
         fn inductive_name(inductive: &Term) -> &str {
             match inductive {
                 Term::Inductive(name) => &name,
@@ -345,7 +345,7 @@ pub mod check {
                     },
                 ),
                 Term::Sort(_) => (),
-                _ => unreachable!("{:#?}", inductive_type),
+                _ => panic!("{:#?}", inductive_type),
             }
         }
 
