@@ -1,4 +1,4 @@
-pub mod environment;
+mod environment;
 mod passes;
 
 use crate::hir::ir::{DeBruijnIndex, Declaration, Inductive, Name, Term, Undefined, HIR};
@@ -603,7 +603,7 @@ impl<'ctx> Context<'ctx> {
             }
             CodegenFunctionConfiguration::OuterConstructorFunction => None,
         };
-
+        
         // Get the basic block that we were previously inserting instructions into. This is
         // used later to build the lambda struct.
         let llvm_previous_basic_block = self.builder.get_insert_block().unwrap();
@@ -1010,7 +1010,7 @@ impl<'ctx> Context<'ctx> {
         );
     }
 
-    pub fn codegen_inductive(&mut self, inductive: &Inductive) {
+    fn codegen_inductive(&mut self, inductive: &Inductive) {
         // Initialize the llvm struct that will have the largest width of any enum variant.
         let inductive_llvm_struct_type = self.context.opaque_struct_type(&inductive.name);
 
@@ -1047,6 +1047,12 @@ impl<'ctx> Context<'ctx> {
         if let Some(constructor_type) = largest_constructor_llvm_type {
             inductive_llvm_struct_type.set_body(&constructor_type.get_field_types(), false);
         }
+    }
+
+    pub fn codegen_fresh_inductive(&mut self, inductive: Inductive) {
+        self.codegen_hir(&HIR {
+            declarations: vec![Declaration::Inductive(inductive)],
+        });
     }
 }
 

@@ -89,10 +89,7 @@ mod tests {
     use super::*;
     use crate::{
         codegen::Context,
-        hir::{
-            examples,
-            ir::{Declaration, Name, HIR},
-        },
+        hir::{examples, ir::Name},
     };
     use inkwell::context::Context as InkwellContext;
 
@@ -168,13 +165,11 @@ mod tests {
     }
 
     #[test]
-    fn test() {
+    fn test_free_variables() {
         let inkwell_context = InkwellContext::create();
         let mut context = Context::build(&inkwell_context);
 
-        context.codegen_hir(&HIR {
-            declarations: vec![Declaration::Inductive(examples::unit())],
-        });
+        context.codegen_fresh_inductive(examples::unit());
 
         test_free_variables_one_lambda(&context, 0, vec![]);
         test_free_variables_one_lambda(&context, 1, vec![0]);
@@ -189,17 +184,25 @@ mod tests {
         test_free_variables_one_recursive_lambda(&context, 1, vec![]);
         test_free_variables_one_recursive_lambda(&context, 2, vec![0]);
         test_free_variables_one_recursive_lambda(&context, 3, vec![1]);
+    }
 
-        // Check that list append doesn't have any free variables
-        context.codegen_inductive(&examples::list());
+    #[test]
+    fn list_append() {
+        let inkwell_context = InkwellContext::create();
+        let mut context = Context::build(&inkwell_context);
+
+        context.codegen_fresh_inductive(examples::list());
+
         let list_append_lambda = match examples::list_append().get_constant(1) {
             Term::Fixpoint { body, .. } => body.clone(),
             _ => panic!(),
         };
+
         assert_eq!(
             free_variables(&context.global, &list_append_lambda, true),
             HashSet::new()
         );
+
         assert_eq!(
             free_variables(
                 &context.global,
