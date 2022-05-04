@@ -854,7 +854,7 @@ pub mod examples {
                                 }),
                                 body: Box::new(Term::Match {
                                     inductive_name: vector_string.clone(),
-                                    return_type: Box::new(vector_term),
+                                    return_type: Box::new(vector_term), // FIXME: This should be some application
                                     scrutinee: Box::new(Term::DeBruijnIndex(1)),
                                     branches: vec![
                                         Term::DeBruijnIndex(1),

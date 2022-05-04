@@ -247,8 +247,8 @@ pub mod check {
                     let inductive = self.global.lookup_inductive(inductive_name.as_str());
 
                     assert_eq!(
-                        self.type_check_term(scrutinee),
-                        Term::Inductive((*inductive_name).clone())
+                        Context::inductive_name(&self.type_check_term(scrutinee)),
+                        inductive_name
                     );
 
                     self.type_check_term(return_type);
@@ -285,7 +285,8 @@ pub mod check {
                                         number_of_declarations_added + 1
                                     }
                                     Term::Inductive(_) => 0,
-                                    _ => unreachable!("{:#?}", constructor_type),
+                                    Term::Application { .. } => 0,
+                                    _ => panic!("{:#?}", constructor_type),
                                 }
                             }
 
@@ -318,6 +319,14 @@ pub mod check {
                     (**expression_type).clone()
                 }
                 Term::Undefined(_) => panic!(),
+            }
+        }
+
+        fn inductive_name(inductive: &Term) -> &str {
+            match inductive {
+                Term::Inductive(name) => &name,
+                Term::Application { function, .. } => Context::inductive_name(function),
+                _ => todo!("{:#?}", inductive),
             }
         }
 
