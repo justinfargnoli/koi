@@ -133,3 +133,43 @@ pub mod ir {
         Empty,
     }
 }
+
+// mod passes {
+//     use super::ir::Term;
+
+//     fn modify_debruijn_indexes(term: &mut Term, increment_by: i64) {
+//         // match term {
+//         //     Term::DeBruijnIndex(index) => *index += increment_by,
+//         //     Term::DependentProduct {
+//         //         parameter_type,
+//         //         return_type,
+//         //         ..
+//         //     } => modify_debruijn_indexes(parameter_type, increment_by),
+//         //     _ => (),
+//         // }
+//     }
+
+//     pub fn increment_debruijn_indexes(term: &mut Term, increment_by: usize) {
+//         modify_debruijn_indexes(term, increment_by.try_into().unwrap())
+//     }
+
+//     pub fn decrement_debruijn_indexes(term: &mut Term, decrement_by: usize) {
+//         modify_debruijn_indexes(term, decrement_by.try_into().unwrap())
+//     }
+
+//     #[cfg(test)]
+//     mod tests {
+//         use super::*;
+
+//         fn assert_unmodified(mut term: Term) {
+//             let term_copy = term.clone();
+//             modify_debruijn_indexes(&mut term, 0);
+//             assert_eq!(term_copy, term);
+//         }
+
+//         #[test]
+//         fn unmodified() {
+//             assert_unmodified(Term::DeBruijnIndex(0));
+//         }
+//     }
+// }
