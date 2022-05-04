@@ -1,6 +1,6 @@
 use crate::hir::ir::Term;
 
-fn dead_function_elimination(term: Term) -> Option<Term> {
+pub fn _dead_function_elimination(_term: Term) -> Option<Term> {
     todo!()
 }
 
@@ -9,7 +9,7 @@ mod tests {
     use super::*;
 
     fn unchanged(term: Term) {
-        assert_eq!(dead_function_elimination(term.clone()).unwrap(), term);
+        assert_eq!(_dead_function_elimination(term.clone()).unwrap(), term);
     }
 
     #[test]
