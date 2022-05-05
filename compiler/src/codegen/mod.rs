@@ -144,7 +144,6 @@ impl<'ctx> Context<'ctx> {
         self.builder
             .build_return(Some(&self.context.i32_type().const_int(0, false)));
 
-        println!("{}", self.module.print_to_string().to_string());
         self.module.verify().unwrap();
     }
 
