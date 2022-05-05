@@ -57,6 +57,12 @@ impl<'ctx> Environment<'ctx> {
         debruijn_index: DeBruijnIndex,
         stack_pointer: PointerValue<'ctx>,
     ) {
-        *self.lookup_mut(debruijn_index) = DeBruijnValue::StackPointer(stack_pointer);
+        let debruijn_value = self.lookup_mut(debruijn_index);
+        match debruijn_value {
+            DeBruijnValue::RegisterValue(_) | DeBruijnValue::StackPointer(_) => {
+                *debruijn_value = DeBruijnValue::StackPointer(stack_pointer)
+            }
+            DeBruijnValue::RecursiveFunction { .. } => panic!("{:#?}", debruijn_value),
+        }
     }
 }

@@ -86,7 +86,7 @@ impl<'ctx> Context<'ctx> {
     }
 
     pub fn codegen_hir(&mut self, hir: &HIR) {
-        // Codegen main if it hasn't already been generated.
+        // Codegen main function
         self.codegen_main();
 
         for declaration in &hir.declarations {
@@ -292,7 +292,7 @@ impl<'ctx> Context<'ctx> {
 
                 let scrutinee_tag_llvm_address = self
                     .builder
-                    .build_struct_gep(casted_scrutinee_llvm_value, 0, "address_of_inductive_tag")
+                    .build_struct_gep(casted_scrutinee_llvm_value, 0, "inductive_tag_address")
                     .unwrap();
                 let scrutinee_tag_llvm_value = self
                     .builder
@@ -532,7 +532,7 @@ impl<'ctx> Context<'ctx> {
                 )
                 .unwrap();
 
-            let debruijn_value = self.codegen_debruijn_index(*free_debruijn_index, local);
+            let debruijn_value = self.codegen_debruijn_index_capture(*free_debruijn_index, local);
 
             self.builder
                 .build_store(llvm_captures_struct_field_address, debruijn_value);
@@ -589,9 +589,21 @@ impl<'ctx> Context<'ctx> {
             CodegenFunctionConfiguration::Fixpoint => free_variables(&self.global, lambda, true),
         };
 
+        let free_debruijn_indexes_without_fixpoints = free_debruijn_indexes
+            .into_iter()
+            .filter(|free_debruijn_index| {
+                if let DeBruijnValue::RecursiveFunction { .. } = local.lookup(*free_debruijn_index)
+                {
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+
         let llvm_captures_struct_ptr = match configuration {
             CodegenFunctionConfiguration::Lambda | CodegenFunctionConfiguration::Fixpoint => {
-                Some(self.codegen_capturing(&free_debruijn_indexes, local))
+                Some(self.codegen_capturing(&free_debruijn_indexes_without_fixpoints, local))
             }
             CodegenFunctionConfiguration::OuterConstructorFunction => None,
         };
@@ -608,7 +620,7 @@ impl<'ctx> Context<'ctx> {
             },
         );
 
-        if !free_debruijn_indexes.is_empty() {
+        if !free_debruijn_indexes_without_fixpoints.is_empty() {
             let casted_captures_struct_pointer = self
                 .builder
                 .build_bitcast(
@@ -619,7 +631,9 @@ impl<'ctx> Context<'ctx> {
                 .into_pointer_value();
 
             // Add captured values to the function and update the local environment
-            for (i, free_debruijn_index) in free_debruijn_indexes.iter().enumerate() {
+            for (i, free_debruijn_index) in
+                free_debruijn_indexes_without_fixpoints.iter().enumerate()
+            {
                 let debruijn_stack_pointer = self
                     .builder
                     .build_alloca(self.pointer_type(), "debruijn_value");
@@ -651,7 +665,10 @@ impl<'ctx> Context<'ctx> {
 
         if let CodegenFunctionConfiguration::Fixpoint = configuration {
             // Add the function to the local context
-            local.push_recursive_function(free_debruijn_indexes, llvm_lambda_function_ptr);
+            local.push_recursive_function(
+                free_debruijn_indexes_without_fixpoints,
+                llvm_lambda_function_ptr,
+            );
         }
 
         // Push the parameter to the local environment.
@@ -782,16 +799,38 @@ impl<'ctx> Context<'ctx> {
         }
     }
 
+    fn codegen_debruijn_index_capture(
+        &self,
+        debruijn_index: DeBruijnIndex,
+        local: &local::Environment<'ctx>,
+    ) -> PointerValue<'ctx> {
+        match local.lookup(debruijn_index) {
+            DeBruijnValue::RegisterValue(pointer) => *pointer,
+            DeBruijnValue::StackPointer(pointer) => self
+                .builder
+                .build_load(*pointer, "load_debruijn_stack_pointer")
+                .into_pointer_value(),
+
+            DeBruijnValue::RecursiveFunction { .. } => panic!("{:#?} {:#?}", debruijn_index, local),
+        }
+    }
+
     fn codegen_exit_with_failure(&self) {
         let llvm_int_type = self.context.i32_type();
-        self.builder.build_call(
+        let exit_function_name = "exit";
+
+        let exit_function = self.module.get_function(exit_function_name).unwrap_or(
             self.module.add_function(
-                "exit",
+                exit_function_name,
                 self.context
                     .void_type()
                     .fn_type(&[llvm_int_type.into()], false),
                 Some(Linkage::External),
             ),
+        );
+
+        self.builder.build_call(
+            exit_function,
             &[llvm_int_type.const_int(1, false).into()],
             "exit_function_call",
         );
@@ -1404,7 +1443,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn vector_append() {
         test_hir(&examples::vector_append());
     }
