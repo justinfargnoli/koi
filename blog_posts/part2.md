@@ -81,7 +81,7 @@ It's important to note that the type of `Set` is **NOT** `Set`. It's actually `T
 7  | Cons (T : Set) (head : T) (tail : List T) => Cons T head (append T tail b).
 ```
 
-`append` is a function that takes in three parameters, the latter two, `a` and `b`, are both of type `List T`. (In other words, `a` and `b` are both lists and the data that those lists hold are of the same type.) The body of the function `match`es on `a`. The `match` statement says that if `a` was constructed with the `Nil` constructor, then return `b`, but if it was constructed with the `Cons` constructor, then construct a new list whose `head` is the `head` of the list `a` and whose `tail` is the result of `append`ing `b` to `a`'s `tail`.
+`append` is a function that takes in three parameters, the latter two, `a` and `b`, are both of type `List T`. (In other words, `a` and `b` are both lists and the data that those lists hold are of the same type.) The body of the function `match`es on `a`. The `match` statement says that if `a`, the scrutinee of the `match` expression, was constructed with the `Nil` constructor, then return `b`, but if it was constructed with the `Cons` constructor, then construct a new list whose `head` is the `head` of the list `a` and whose `tail` is the result of `append`ing `b` to `a`'s `tail`.
 
 #### `Fixpoint`
 Our `append` function is declared with the `Fixpoint` keyword. This tells Coq that `append` is a recursive function. Recursive functions in Coq must terminate to ensure that Coq is logically consistent. Coq uses conservative syntactic checks to verify that a `Fixpoint` function does in fact terminate. 
@@ -131,7 +131,7 @@ In Coq function are [curried](https://stackoverflow.com/questions/36314/what-is-
 
 ```Coq
 8  Fixpoint add (a : Natural) : Natural -> Natural :=
-9      fun (b : Natural) :=
+9      fun (b : Natural) =>
 10         match a with
 11         | Zero => b
 12         | Successor (n : Natural) => Successor (add n b).

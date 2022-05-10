@@ -13,10 +13,8 @@ Here's an outline of this series of blogs posts and links to each blog post:
 2. [The Calculus of Inductive Constructions](https://gist.github.com/justinfargnoli/900e0bd457e8eacfc842a0a154730ff5) - Getting a first look at Coq syntax and the power of the CoIC. Introduce two running examples. 
 3. [Type Checking](https://gist.github.com/justinfargnoli/8ded6d3c94bcfa82503ffd329460fd75) - How did I go about type checking the CoIC?
 4. [Compilation](https://gist.github.com/justinfargnoli/1ee56d4f9904176b1ea26dffee3b1d24) - How did I go about compiling the CoIC?
-5. [Reflections](https://gist.github.com/justinfargnoli/b8837284d9ef53f578405976260b9330) - Was the independent study successful? What did I accomplish? What's left to do?
+5. [Reflections](https://gist.github.com/justinfargnoli/b8837284d9ef53f578405976260b9330) - Was the project successful? What did I accomplish? What's left to do?
 
 ## Accompanying Matierals
 
 Here's a link to my implementation on GitHub: [Koi](https://github.com/justinfargnoli/koi).
-
-Here's a link to the slides that I used for my talk: TODO.
