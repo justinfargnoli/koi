@@ -50,3 +50,47 @@ Proof.
     simpl. rewrite -> IHl1'. reflexivity. Qed.
     
 Print app_length.
+
+Module Test.
+
+Inductive Natural : Set :=
+| Zero : Natural
+| Successor (n : Natural) : Natural.
+
+Fixpoint natural_add (a b : Natural) : Natural :=
+match a with
+| Zero => b
+| Successor n => Successor (natural_add n b)
+end.
+
+Compute natural_add (Successor Zero) (Successor Zero).
+
+(* This isn't geneic over `T` like it is in the standard
+library to simplify the example. *)
+Inductive Vector (T :Set) : Natural -> Set :=
+| Nil : Vector T Zero
+| Cons (head : T) 
+       (tail_length : Natural) 
+       (tail : Vector T tail_length) 
+       : Vector T (Successor tail_length).
+       
+Fixpoint append (T: Set) (n m : Natural) 
+                (a : Vector T n) 
+                (b : Vector T m)
+                : Vector T (natural_add n m) :=
+match a with
+| Nil _ => b
+| Cons _ head tail_length tail => 
+    Cons T head (natural_add tail_length m) (append T tail_length m tail b)
+end.
+
+Compute append Natural Zero Zero (Nil Natural) (Nil Natural).
+
+Compute append Natural 
+               (Successor Zero) (Successor Zero) 
+               (Cons Natural Zero Zero (Nil Natural)) 
+               (Cons Natural Zero Zero (Nil Natural)).
+               
+End Test.
+
+

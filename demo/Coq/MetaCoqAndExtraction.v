@@ -33,4 +33,11 @@ Inductive Bool :=
 End Tester.
 
 MetaCoq SafeCheck Tester.Bool.
+
+Definition tester (v : VectorDef.t nat O) := match v with
+| nil => O
+| cons a v' => O
+end.
+
+Check tester.
   

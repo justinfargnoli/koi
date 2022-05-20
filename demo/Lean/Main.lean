@@ -48,6 +48,16 @@ def append (A : Type u) (B : Type w) (f : A -> B) (as : List A) (bs : List B) : 
 #print append
 #check append
 
+inductive Vector (A : Type u) : Nat -> Type u where
+| nil : Vector A Nat.zero
+| cons : A -> (tail_length : Nat) -> Vector A tail_length -> Vector A (Nat.succ tail_length)
+
+def vector_append (A : Type u) (n m : Nat) (a : Vector A n) (b : Vector A m) : Vector A (add n m) := 
+  match a with
+    | Vector.nil => b
+    | Vector.cons head tail_length tail => 
+        Vector.cons head (add tail_length m) (vector_append A tail_length m tail b)
+
 -- theorem length_nil : length List.nil = Nat.zero := by rfl
 
 
