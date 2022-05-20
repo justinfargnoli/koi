@@ -156,7 +156,6 @@ pub mod check {
                     Sort::Type(number) => Term::Sort(Sort::Type(number + 1)),
                 },
                 Term::DependentProduct {
-                    // parameter_name,
                     parameter_type,
                     return_type,
                     ..
@@ -166,13 +165,11 @@ pub mod check {
                         _ => panic!(),
                     };
 
-                    self.local.push_declaration(
-                        /* parameter_name.clone(), */ (**parameter_type).clone(),
-                    );
+                    self.local.push_declaration((**parameter_type).clone());
 
                     let return_type_sort = match self.type_check_term(return_type) {
                         Term::Sort(sort) => sort,
-                        _ => panic!(),
+                        _ => panic!("{:#?}", return_type),
                     };
 
                     self.local.pop_declaration();
@@ -194,9 +191,7 @@ pub mod check {
                 } => {
                     self.type_check_term(parameter_type);
 
-                    self.local.push_declaration(
-                        /* parameter_name.clone(), */ (**parameter_type).clone(),
-                    );
+                    self.local.push_declaration((**parameter_type).clone());
                     let body_type = self.type_check_term(body);
                     self.local.pop_declaration();
 
@@ -545,6 +540,12 @@ pub mod check {
         #[should_panic]
         fn undefined() {
             Context::type_check_hir(&examples::undefined())
+        }
+
+        #[test]
+        #[ignore]
+        fn modus_ponens() {
+            Context::type_check_hir(&examples::modus_ponens())
         }
     }
 }

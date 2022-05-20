@@ -444,8 +444,6 @@ pub fn list() -> Inductive {
     }
 }
 
-// Possible bug fix: modify debruijn indexes to be relative to outside of the match, so that they match up with the return type of the match expression.
-
 /// func list_append(T : Set, a b : List T) -> List T {
 ///     match a -> List T {
 ///         List.Nil(T : Set) => b
@@ -781,5 +779,39 @@ pub fn vector_append() -> HIR {
 pub fn undefined() -> HIR {
     HIR {
         declarations: vec![Declaration::Constant(Term::Undefined(Undefined::Empty))],
+    }
+}
+
+pub fn modus_ponens() -> HIR {
+    let implication_name = Name::Named("implication".to_string());
+    HIR {
+        declarations: vec![Declaration::Constant(Term::Lambda {
+            name: Name::Named("modus_ponens".to_string()),
+            parameter_name: Name::Named("P".to_string()),
+            parameter_type: Box::new(Term::Sort(Sort::Prop)),
+            body: Box::new(Term::Lambda {
+                name: Name::Anonymous,
+                parameter_name: Name::Named("Q".to_string()),
+                parameter_type: Box::new(Term::Sort(Sort::Prop)),
+                body: Box::new(Term::Lambda {
+                    name: Name::Anonymous,
+                    parameter_name: implication_name.clone(),
+                    parameter_type: Box::new(Term::DependentProduct {
+                        parameter_name: implication_name,
+                        parameter_type: Box::new(Term::DeBruijnIndex(0)),
+                        return_type: Box::new(Term::DeBruijnIndex(2)),
+                    }),
+                    body: Box::new(Term::Lambda {
+                        name: Name::Anonymous,
+                        parameter_name: Name::Anonymous,
+                        parameter_type: Box::new(Term::DeBruijnIndex(2)),
+                        body: Box::new(Term::Application {
+                            function: Box::new(Term::DeBruijnIndex(1)),
+                            argument: Box::new(Term::DeBruijnIndex(0)),
+                        }),
+                    }),
+                }),
+            }),
+        })],
     }
 }
