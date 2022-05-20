@@ -488,7 +488,7 @@ pub fn list_append() -> HIR {
             parameter_type: Box::new(Term::Sort(Sort::Set)),
             body: Box::new(Term::Lambda {
                 name: Name::Anonymous,
-                parameter_name: Name::Named(a_name.clone()),
+                parameter_name: Name::Named(a_name),
                 parameter_type: Box::new(Term::Application {
                     function: Box::new(list_term.clone()),
                     argument: Box::new(Term::DeBruijnIndex(0)),

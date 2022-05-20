@@ -591,12 +591,10 @@ impl<'ctx> Context<'ctx> {
         let free_debruijn_indexes_without_fixpoints = free_debruijn_indexes
             .into_iter()
             .filter(|free_debruijn_index| {
-                if let DeBruijnValue::RecursiveFunction { .. } = local.lookup(*free_debruijn_index)
-                {
-                    false
-                } else {
-                    true
-                }
+                !matches!(
+                    local.lookup(*free_debruijn_index),
+                    DeBruijnValue::RecursiveFunction { .. }
+                )
             })
             .collect();
 
@@ -818,15 +816,18 @@ impl<'ctx> Context<'ctx> {
         let llvm_int_type = self.context.i32_type();
         let exit_function_name = "exit";
 
-        let exit_function = self.module.get_function(exit_function_name).unwrap_or(
-            self.module.add_function(
-                exit_function_name,
-                self.context
-                    .void_type()
-                    .fn_type(&[llvm_int_type.into()], false),
-                Some(Linkage::External),
-            ),
-        );
+        let exit_function = self
+            .module
+            .get_function(exit_function_name)
+            .unwrap_or_else(|| {
+                self.module.add_function(
+                    exit_function_name,
+                    self.context
+                        .void_type()
+                        .fn_type(&[llvm_int_type.into()], false),
+                    Some(Linkage::External),
+                )
+            });
 
         self.builder.build_call(
             exit_function,

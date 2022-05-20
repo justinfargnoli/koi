@@ -319,7 +319,7 @@ pub mod check {
 
         fn inductive_name(inductive: &Term) -> &str {
             match inductive {
-                Term::Inductive(name) => &name,
+                Term::Inductive(name) => name,
                 Term::Application { function, .. } => Context::inductive_name(function),
                 _ => todo!("{:#?}", inductive),
             }
